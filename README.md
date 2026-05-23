@@ -94,8 +94,21 @@ Example query in Vercel logs filter bar:
 scope:"merge.garmin" level:"error"
 ```
 
-For long-term retention or alerts, point a log drain at Axiom or BetterStack
-(both have free tiers, take Vercel's JSON output as-is).
+For long-term retention point a log drain at Axiom or BetterStack (both have
+free tiers, take Vercel's JSON output as-is).
+
+### Slack alerts
+
+Errors and warnings from every API route forward to a Slack incoming webhook
+when `SLACK_WEBHOOK_URL` is set. Alerts are rate-limited to one per minute per
+`scope:title` pair so a noisy bug doesn't flood the channel.
+
+To set it up:
+
+1. Create an app at <https://api.slack.com/apps> → **Incoming Webhooks** →
+   **Add New Webhook to Workspace**.
+2. Copy the webhook URL.
+3. Set `SLACK_WEBHOOK_URL` in Vercel env vars (+ `.env.local` for local).
 
 ## Roadmap
 

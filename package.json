@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@garmin/fitsdk": "^21.205.0",
-    "@sentry/nextjs": "^10.53.1",
     "@supabase/supabase-js": "^2.106.1",
     "@types/adm-zip": "^0.5.8",
     "adm-zip": "^0.5.17",

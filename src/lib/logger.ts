@@ -17,14 +17,17 @@ function emit(level: LogLevel, scope: string, msg: string, fields: Fields = {}):
   if (level === "error") console.error(line);
   else if (level === "warn") console.warn(line);
   else console.log(line);
-  if (level === "error" && process.env.SENTRY_DSN) {
-    import("@sentry/nextjs")
-      .then((Sentry) => {
-        Sentry.captureMessage(`${scope}: ${msg}`, {
-          level: "error",
-          extra: fields,
-        });
-      })
+  if ((level === "error" || level === "warn") && process.env.SLACK_WEBHOOK_URL) {
+    import("./slack")
+      .then(({ postSlackAlert }) =>
+        postSlackAlert({
+          title: `${level === "error" ? "Error" : "Warning"} in ${scope}`,
+          scope,
+          msg,
+          level,
+          fields,
+        })
+      )
       .catch(() => {});
   }
 }
