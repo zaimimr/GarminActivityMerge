@@ -1,36 +1,82 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Activity Editor
 
-## Getting Started
+Merge split activities back into one on Strava and Garmin Connect. Useful when
+your watch saved a single run as two activities (auto-pause hang, accidental
+stop/start, battery die, multisport mis-detection).
 
-First, run the development server:
+Pulls the original FIT files, concatenates the records, re-derives summary
+stats, uploads the merged activity, then deletes the originals.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Stack
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- Next.js 16 (App Router) + TypeScript + Tailwind
+- Supabase Postgres for users / tokens / merge jobs
+- Strava OAuth + REST API
+- `garmin-connect` (reverse-engineered Garmin Connect web API)
+- `@garmin/fitsdk` for FIT decode/encode
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Local setup
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Install deps:
 
-## Learn More
+   ```bash
+   npm install
+   ```
 
-To learn more about Next.js, take a look at the following resources:
+2. Create a Supabase project, then run `supabase/schema.sql` in the SQL editor.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+3. Create a Strava API application at <https://www.strava.com/settings/api>:
+   - Authorization Callback Domain: `localhost`
+   - Note the Client ID and Client Secret.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+4. Copy `.env.example` to `.env.local` and fill in:
 
-## Deploy on Vercel
+   ```env
+   APP_URL=http://localhost:3000
+   SESSION_SECRET=<32+ random chars>
+   SUPABASE_URL=https://<project>.supabase.co
+   SUPABASE_SERVICE_ROLE_KEY=<service role key>
+   STRAVA_CLIENT_ID=<id>
+   STRAVA_CLIENT_SECRET=<secret>
+   ```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+5. Run the dev server:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+   ```bash
+   npm run dev
+   ```
+
+   Open <http://localhost:3000>.
+
+## Garmin caveats
+
+The Garmin integration uses [`garmin-connect`](https://www.npmjs.com/package/garmin-connect),
+which reverse-engineers the Garmin Connect web SSO flow. This is a gray area
+relative to Garmin's ToS. It works today, but:
+
+- MFA is not handled by the current login route.
+- Garmin may change the SSO flow at any time and break logins.
+- For production use, pursue the official Garmin Connect Developer Program API.
+
+## How the merge works
+
+`src/lib/fit-merge.ts`:
+
+1. Decodes each selected FIT file via the official Garmin FIT JS SDK.
+2. Sorts files by first record timestamp, then concatenates record messages
+   chronologically and deduplicates by timestamp.
+3. Re-cumulates the `distance` field across file boundaries so totals stay
+   monotonic.
+4. Emits a single output FIT containing: `file_id`, `file_creator`,
+   `device_info` (from first file), start event, all records, stop event, a
+   synthesized lap, a synthesized session, and an activity record. Totals
+   (distance, elapsed, avg/max HR, ascent/descent) are recomputed from the
+   merged record stream.
+
+## Roadmap
+
+- MFA / app-password flow for Garmin
+- Split activities (the inverse operation)
+- Trim warmup / cooldown
+- GPS spike removal
+- Cross-platform copy (e.g. push a Garmin merge to Strava too)

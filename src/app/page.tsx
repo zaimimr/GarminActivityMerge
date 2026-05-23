@@ -1,65 +1,56 @@
-import Image from "next/image";
+import Link from "next/link";
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <main className="min-h-screen bg-zinc-950 text-zinc-100">
+      <div className="mx-auto max-w-3xl px-6 py-24">
+        <h1 className="text-5xl font-bold tracking-tight">
+          Merge split activities.
+        </h1>
+        <p className="mt-6 text-xl text-zinc-400">
+          Your watch saved one run as two. Combine them into a single activity
+          on Strava or Garmin, and delete the broken originals automatically.
+        </p>
+
+        <div className="mt-12 grid gap-4 sm:grid-cols-2">
+          <Link
+            href="/api/auth/strava"
+            className="block rounded-xl bg-orange-600 px-6 py-5 text-center font-semibold hover:bg-orange-500"
+          >
+            Connect Strava
+          </Link>
+          <Link
+            href="/connect/garmin"
+            className="block rounded-xl bg-blue-600 px-6 py-5 text-center font-semibold hover:bg-blue-500"
+          >
+            Connect Garmin
+          </Link>
+        </div>
+
+        <div className="mt-8">
+          <Link
+            href="/dashboard"
+            className="text-zinc-400 underline-offset-4 hover:text-zinc-200 hover:underline"
+          >
+            Already connected? Open dashboard →
+          </Link>
+        </div>
+
+        <section className="mt-20 space-y-6 text-zinc-400">
+          <h2 className="text-xl font-semibold text-zinc-200">How it works</h2>
+          <ol className="space-y-3 text-sm leading-6">
+            <li>1. Connect your Strava and/or Garmin account.</li>
+            <li>2. Pick two or more activities you want to merge.</li>
+            <li>
+              3. We download the original FIT files, merge them into one
+              activity, upload the result and delete the originals.
+            </li>
+          </ol>
+          <p className="text-xs text-zinc-500">
+            Pre-release. We are not affiliated with Strava or Garmin.
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+        </section>
+      </div>
+    </main>
   );
 }
