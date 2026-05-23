@@ -73,6 +73,30 @@ relative to Garmin's ToS. It works today, but:
    (distance, elapsed, avg/max HR, ascent/descent) are recomputed from the
    merged record stream.
 
+## Production logging (Vercel)
+
+All API routes emit structured JSON logs via `src/lib/logger.ts`. Vercel
+automatically parses JSON log lines and exposes the fields as filterable columns
+in the dashboard logs view.
+
+To debug an issue:
+
+1. Open Vercel project → **Logs** tab → switch to **Runtime Logs**.
+2. Filter by `scope=merge.garmin`, `scope=merge.strava`, or `scope=undo`.
+3. Errors carry `code` (one of `DEDUP_REJECTED`, `AUTH_EXPIRED`, etc. — see
+   `src/lib/errors.ts`) plus `jobId`.
+4. Cross-reference `jobId` against `merge_jobs` in Supabase to inspect the full
+   row + storage keys + error column.
+
+Example query in Vercel logs filter bar:
+
+```
+scope:"merge.garmin" level:"error"
+```
+
+For long-term retention or alerts, point a log drain at Axiom or BetterStack
+(both have free tiers, take Vercel's JSON output as-is).
+
 ## Roadmap
 
 - MFA / app-password flow for Garmin

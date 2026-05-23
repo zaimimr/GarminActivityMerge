@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { readSession } from "@/lib/session";
 import { supabaseAdmin } from "@/lib/supabase";
+import { ensureCsrfCookie } from "@/lib/csrf";
 
 export async function GET() {
+  await ensureCsrfCookie();
   const s = await readSession();
   if (!s) return NextResponse.json({ user: null });
   const sb = supabaseAdmin();

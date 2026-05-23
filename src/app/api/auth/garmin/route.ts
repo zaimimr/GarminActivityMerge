@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { loginWithPassword, saveGarminSession } from "@/lib/garmin";
 import { getOrCreateUser, readSession, setSessionCookie } from "@/lib/session";
+import { verifyCsrf, csrfRejection, CSRF_HEADER } from "@/lib/csrf";
 
 export const maxDuration = 30;
 export const runtime = "nodejs";
@@ -12,6 +13,7 @@ const body = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  if (!(await verifyCsrf(req.headers.get(CSRF_HEADER)))) return csrfRejection();
   let parsed;
   try {
     parsed = body.parse(await req.json());

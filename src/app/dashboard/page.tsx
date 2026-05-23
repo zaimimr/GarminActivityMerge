@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { fetchWithCsrf } from "@/lib/fetch-csrf";
 
 type Me = {
   user: { id: string } | null;
@@ -29,6 +30,18 @@ type GarminActivity = {
 
 type Platform = "strava" | "garmin";
 
+type MergeJob = {
+  id: string;
+  platform: Platform;
+  source_activity_ids: string[];
+  result_activity_id: string | null;
+  result_start_time: string | null;
+  status: "pending" | "running" | "succeeded" | "failed" | "undone";
+  error: string | null;
+  originals_storage_keys: string[] | null;
+  created_at: string;
+};
+
 export default function Dashboard() {
   const [me, setMe] = useState<Me | null>(null);
   const [platform, setPlatform] = useState<Platform>("strava");
@@ -41,6 +54,18 @@ export default function Dashboard() {
   const [deleteOriginals, setDeleteOriginals] = useState(true);
   const [merging, setMerging] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<{ title?: string; hint?: string; code?: string; message: string } | null>(null);
+  const [lastJobId, setLastJobId] = useState<string | null>(null);
+  const [undoing, setUndoing] = useState(false);
+  const [jobs, setJobs] = useState<MergeJob[]>([]);
+  const [undoingJobId, setUndoingJobId] = useState<string | null>(null);
+
+  const loadJobs = useCallback(async () => {
+    const r = await fetch("/api/jobs");
+    if (!r.ok) return;
+    const j = await r.json();
+    setJobs((j.jobs as MergeJob[]) ?? []);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,7 +96,8 @@ export default function Dashboard() {
   useEffect(() => {
     setSelected(new Set());
     void load();
-  }, [load]);
+    void loadJobs();
+  }, [load, loadJobs]);
 
   function toggle(id: number) {
     setSelected((s) => {
@@ -93,16 +119,30 @@ export default function Dashboard() {
         name: mergeName || undefined,
         deleteOriginals,
       };
-      const r = await fetch(`/api/merge/${platform}`, {
+      const r = await fetchWithCsrf(`/api/merge/${platform}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? "Merge failed");
-      setResult(`Done. New activity id: ${j.activityId ?? JSON.stringify(j.result)}`);
+      if (!r.ok) {
+        if (j.jobId) setLastJobId(j.jobId);
+        setErrorDetail({
+          title: j.title,
+          hint: j.hint,
+          code: j.code,
+          message: j.error ?? "Merge failed",
+        });
+        throw new Error(j.error ?? "Merge failed");
+      }
+      const warn = j.deleteWarnings?.length
+        ? ` (delete warnings: ${j.deleteWarnings.join("; ")})`
+        : "";
+      setResult(`Merge succeeded. New activity ${j.activityId ?? j.uploadedId ?? "(async upload accepted)"}${warn}`);
+      setErrorDetail(null);
+      setLastJobId(j.jobId ?? null);
       setSelected(new Set());
-      await load();
+      await Promise.all([load(), loadJobs()]);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -110,8 +150,57 @@ export default function Dashboard() {
     }
   }
 
+  async function undo() {
+    if (!lastJobId) return;
+    await undoJob(lastJobId);
+  }
+
+  async function undoJob(jobId: string) {
+    if (!confirm("Re-upload originals and delete the merged activity?")) return;
+    setUndoingJobId(jobId);
+    if (jobId === lastJobId) setUndoing(true);
+    setError(null);
+    try {
+      const r = await fetchWithCsrf(`/api/undo/${jobId}`, { method: "POST" });
+      const j = await r.json();
+      if (!r.ok && r.status !== 207) throw new Error(j.error ?? "Undo failed");
+      if (j.partial) {
+        setError(`Partial undo. Errors: ${j.errors?.join("; ")}`);
+      } else {
+        setResult(`Undone. Restored ${j.restored?.length ?? 0} activities.`);
+        if (jobId === lastJobId) setLastJobId(null);
+      }
+      await Promise.all([load(), loadJobs()]);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setUndoingJobId(null);
+      if (jobId === lastJobId) setUndoing(false);
+    }
+  }
+
   const connected = platform === "strava" ? me?.strava?.connected : me?.garmin?.connected;
   const items = platform === "strava" ? strava : garmin;
+  const undoableJobs = jobs.filter(
+    (j) =>
+      j.platform === platform &&
+      j.status === "succeeded" &&
+      j.originals_storage_keys &&
+      j.originals_storage_keys.length > 0
+  );
+
+  function findUndoableJobForActivity(activityId: number, activityStart: string): MergeJob | undefined {
+    for (const j of undoableJobs) {
+      if (j.result_activity_id && j.result_activity_id === String(activityId)) return j;
+      if (j.result_start_time) {
+        const diff = Math.abs(
+          new Date(j.result_start_time).getTime() - new Date(activityStart).getTime()
+        );
+        if (diff < 30_000) return j;
+      }
+    }
+    return undefined;
+  }
 
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
@@ -194,6 +283,7 @@ export default function Dashboard() {
                       : Math.round((a as GarminActivity).duration);
                   const dist = a.distance ?? 0;
                   const isSel = selected.has(id);
+                  const mergedJob = findUndoableJobForActivity(id, date);
                   return (
                     <li
                       key={id}
@@ -210,13 +300,34 @@ export default function Dashboard() {
                           className="h-4 w-4 accent-orange-500"
                         />
                         <div>
-                          <div className="font-medium text-zinc-100">{name}</div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-zinc-100">{name}</span>
+                            {mergedJob && (
+                              <span className="rounded bg-emerald-600/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
+                                merged
+                              </span>
+                            )}
+                          </div>
                           <div className="text-xs text-zinc-500">
                             {sport} · {new Date(date).toLocaleString()} · {(dist / 1000).toFixed(2)} km · {formatDuration(elapsed)}
                           </div>
                         </div>
                       </div>
-                      <span className="font-mono text-xs text-zinc-600">#{id}</span>
+                      <div className="flex items-center gap-3">
+                        {mergedJob && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void undoJob(mergedJob.id);
+                            }}
+                            disabled={undoingJobId === mergedJob.id}
+                            className="rounded border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-xs font-semibold text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                          >
+                            {undoingJobId === mergedJob.id ? "Undoing..." : "Undo merge"}
+                          </button>
+                        )}
+                        <span className="font-mono text-xs text-zinc-600">#{id}</span>
+                      </div>
                     </li>
                   );
                 })}
@@ -258,13 +369,69 @@ export default function Dashboard() {
             )}
 
             {result && (
-              <div className="mt-4 rounded-md border border-green-700/40 bg-green-900/20 p-4 text-sm text-green-300">
-                {result}
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-green-700/40 bg-green-900/20 p-4 text-sm text-green-300">
+                <span>{result}</span>
+                {lastJobId && (
+                  <button
+                    onClick={undo}
+                    disabled={undoing}
+                    className="rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1 text-xs font-semibold text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                  >
+                    {undoing ? "Undoing..." : "Undo merge"}
+                  </button>
+                )}
               </div>
             )}
             {error && (
-              <div className="mt-4 rounded-md border border-red-700/40 bg-red-900/20 p-4 text-sm text-red-300">
-                {error}
+              <div className="mt-4 space-y-2 rounded-md border border-red-700/40 bg-red-900/20 p-4 text-sm text-red-300">
+                {errorDetail?.title && (
+                  <div className="flex items-center gap-2 font-semibold text-red-200">
+                    <span>{errorDetail.title}</span>
+                    {errorDetail.code && (
+                      <span className="rounded bg-red-900/60 px-1.5 py-0.5 font-mono text-[10px] text-red-200">
+                        {errorDetail.code}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {errorDetail?.hint && (
+                  <div className="text-xs text-red-200/80">{errorDetail.hint}</div>
+                )}
+                <details className="text-xs text-red-300/70">
+                  <summary className="cursor-pointer">Technical detail</summary>
+                  <div className="mt-1 break-all font-mono">{error}</div>
+                  {lastJobId && (
+                    <div className="mt-1 font-mono">job: {lastJobId}</div>
+                  )}
+                </details>
+                {lastJobId && (
+                  <div className="flex flex-wrap gap-3 text-xs">
+                    <a
+                      href={`/api/jobs/${lastJobId}/download?which=merged`}
+                      className="rounded border border-zinc-700 px-2 py-1 text-zinc-200 hover:bg-zinc-800"
+                      download
+                    >
+                      Download merged FIT
+                    </a>
+                    {[0, 1, 2, 3].map((i) => (
+                      <a
+                        key={i}
+                        href={`/api/jobs/${lastJobId}/download?which=original&index=${i}`}
+                        className="rounded border border-zinc-700 px-2 py-1 text-zinc-200 hover:bg-zinc-800"
+                        download
+                      >
+                        Download original #{i + 1}
+                      </a>
+                    ))}
+                    <button
+                      onClick={undo}
+                      disabled={undoing}
+                      className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 font-semibold text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                    >
+                      {undoing ? "Restoring..." : "Restore originals"}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </>

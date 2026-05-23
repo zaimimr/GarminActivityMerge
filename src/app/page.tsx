@@ -56,6 +56,11 @@ export default function Home() {
           <p className="text-xs text-zinc-500">
             Pre-release. We are not affiliated with Strava or Garmin.
           </p>
+          <p className="text-xs text-zinc-600">
+            <Link href="/privacy" className="hover:text-zinc-400">Privacy</Link>
+            {" · "}
+            <Link href="/terms" className="hover:text-zinc-400">Terms</Link>
+          </p>
         </section>
       </div>
     </main>

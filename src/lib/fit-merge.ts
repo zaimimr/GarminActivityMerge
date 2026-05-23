@@ -79,17 +79,80 @@ function withNum(m: AnyMesg, mesgNum: number): AnyMesg {
   return { ...m, mesgNum };
 }
 
+function tryWrite(encoder: Encoder, mesg: AnyMesg, label: string): void {
+  try {
+    encoder.writeMesg(mesg as never);
+  } catch (e) {
+    const err = e as Error & { cause?: unknown };
+    const cause = err.cause as { mesg?: unknown; cause?: { message?: string; cause?: unknown } } | undefined;
+    const innerMsg = cause?.cause?.message ?? "unknown";
+    const innerCause = cause?.cause?.cause as { value?: unknown; fieldDefinition?: { name?: string; type?: string } } | undefined;
+    const field = innerCause?.fieldDefinition?.name;
+    const val = innerCause?.value;
+    throw new Error(
+      `Encoder failed at ${label} (mesgNum=${mesg.mesgNum}, field=${field}, value=${JSON.stringify(val)}): ${innerMsg}`
+    );
+  }
+}
+
 export type MergeOptions = {
   name?: string;
+  /** Shift all timestamps in the merged FIT by this many seconds to avoid platform-side duplicate detection. */
+  timestampShiftSeconds?: number;
+  /**
+   * Per-source activity metric overrides, in the same order as `files`. Used when the raw FIT
+   * records don't carry distance/speed/etc. (e.g. indoor activities where Garmin computes those
+   * server-side). When provided, the merged session/lap totals are summed from these instead of
+   * derived from records.
+   */
+  metricsOverride?: Array<{
+    distance?: number;
+    duration?: number;
+    averageSpeed?: number;
+    maxSpeed?: number;
+    averageHR?: number;
+    maxHR?: number;
+    calories?: number;
+    elevationGain?: number;
+    elevationLoss?: number;
+  }>;
 };
 
+export type MergeResult = {
+  buffer: Buffer;
+  startTime: Date;
+  endTime: Date;
+  recordCount: number;
+  totalDistance: number;
+};
+
+export function mergeFitFilesWithMeta(
+  files: (Buffer | ArrayBuffer)[],
+  opts: MergeOptions = {}
+): MergeResult {
+  const out = mergeFitFilesInternal(files, opts);
+  return out;
+}
+
 export function mergeFitFiles(files: (Buffer | ArrayBuffer)[], opts: MergeOptions = {}): Buffer {
+  return mergeFitFilesInternal(files, opts).buffer;
+}
+
+function mergeFitFilesInternal(files: (Buffer | ArrayBuffer)[], opts: MergeOptions = {}): MergeResult {
   if (files.length < 2) throw new Error("Need at least 2 files to merge");
   const decoded = files.map(decodeFit);
 
   decoded.sort((a, b) => tsOf(a.records[0]) - tsOf(b.records[0]));
 
   const base = decoded[0];
+  const shiftMs = (opts.timestampShiftSeconds ?? 0) * 1000;
+  const shiftTs = (d: Date): Date => (shiftMs === 0 ? d : new Date(d.getTime() + shiftMs));
+  const shiftMesgTs = (m: AnyMesg): AnyMesg => {
+    if (shiftMs === 0) return m;
+    const t = m.timestamp;
+    if (t instanceof Date) return { ...m, timestamp: shiftTs(t) };
+    return m;
+  };
 
   const allRecords: AnyMesg[] = [];
   let distanceOffset = 0;
@@ -100,7 +163,7 @@ export function mergeFitFiles(files: (Buffer | ArrayBuffer)[], opts: MergeOption
     for (const r of file.records) {
       const rawD = (r.distance as number | undefined) ?? 0;
       const adjustedD = rawD - firstD + distanceOffset;
-      allRecords.push({ ...r, distance: adjustedD });
+      allRecords.push(shiftMesgTs({ ...r, distance: adjustedD }));
       lastRecordDistance = adjustedD;
     }
     distanceOffset = lastRecordDistance;
@@ -151,11 +214,42 @@ export function mergeFitFiles(files: (Buffer | ArrayBuffer)[], opts: MergeOption
     }
   }
 
-  const avgHr = avgHrCount > 0 ? Math.round(avgHrSum / avgHrCount) : undefined;
-  const avgSpeed = totalElapsed > 0 ? totalDistance / totalElapsed : undefined;
+  let avgHr = avgHrCount > 0 ? Math.round(avgHrSum / avgHrCount) : undefined;
+  let avgSpeed = totalElapsed > 0 && totalDistance > 0 ? totalDistance / totalElapsed : undefined;
 
   for (const file of decoded) {
     totalCalories += (file.session?.totalCalories as number | undefined) ?? 0;
+  }
+
+  const overrides = opts.metricsOverride;
+  if (overrides && overrides.length === files.length) {
+    const overrideDistance = overrides.reduce((s, m) => s + (m.distance ?? 0), 0);
+    const overrideCalories = overrides.reduce((s, m) => s + (m.calories ?? 0), 0);
+    if (totalDistance <= 0 && overrideDistance > 0) {
+      totalDistance = overrideDistance;
+      avgSpeed = totalElapsed > 0 ? totalDistance / totalElapsed : avgSpeed;
+    }
+    if (totalCalories <= 0 && overrideCalories > 0) totalCalories = overrideCalories;
+    if (!maxSpeed) {
+      const m = Math.max(...overrides.map((o) => o.maxSpeed ?? 0));
+      if (m > 0) maxSpeed = m;
+    }
+    if (!maxHr) {
+      const m = Math.max(...overrides.map((o) => o.maxHR ?? 0));
+      if (m > 0) maxHr = m;
+    }
+    if (avgHr == null) {
+      const list = overrides.map((o) => o.averageHR).filter((v): v is number => typeof v === "number" && v > 0);
+      if (list.length > 0) avgHr = Math.round(list.reduce((a, b) => a + b, 0) / list.length);
+    }
+    if (!totalAscent) {
+      const a = overrides.reduce((s, m) => s + (m.elevationGain ?? 0), 0);
+      if (a > 0) totalAscent = a;
+    }
+    if (!totalDescent) {
+      const a = overrides.reduce((s, m) => s + (m.elevationLoss ?? 0), 0);
+      if (a > 0) totalDescent = a;
+    }
   }
 
   const sport = (base.session?.sport as number | undefined) ?? (base.sport?.sport as number | undefined);
@@ -163,57 +257,49 @@ export function mergeFitFiles(files: (Buffer | ArrayBuffer)[], opts: MergeOption
 
   const encoder = new Encoder();
 
+  const freshSerial = Math.floor(Math.random() * 0xfffffffe) + 1;
   if (base.fileId) {
-    encoder.writeMesg(
+    tryWrite(
+      encoder,
       withNum(
-        {
-          ...base.fileId,
-          timeCreated: firstTs,
-          type: 4,
-        },
+        { ...base.fileId, timeCreated: firstTs, type: 4, serialNumber: freshSerial },
         MESG.FILE_ID
-      ) as never
+      ),
+      "file_id"
     );
   } else {
-    encoder.writeMesg(
-      withNum({ type: 4, manufacturer: 255, timeCreated: firstTs }, MESG.FILE_ID) as never
+    tryWrite(
+      encoder,
+      withNum(
+        { type: 4, manufacturer: 255, timeCreated: firstTs, serialNumber: freshSerial },
+        MESG.FILE_ID
+      ),
+      "file_id"
     );
   }
 
   if (base.fileCreator) {
-    encoder.writeMesg(withNum(base.fileCreator, MESG.FILE_CREATOR) as never);
+    tryWrite(encoder, withNum(base.fileCreator, MESG.FILE_CREATOR), "file_creator");
   }
 
-  for (const dev of base.deviceInfos) {
-    encoder.writeMesg(withNum(dev, MESG.DEVICE_INFO) as never);
+  for (let i = 0; i < base.deviceInfos.length; i++) {
+    tryWrite(encoder, withNum(base.deviceInfos[i], MESG.DEVICE_INFO), `device_info[${i}]`);
   }
 
-  encoder.writeMesg(
-    withNum(
-      {
-        timestamp: firstTs,
-        event: 0,
-        eventType: 0,
-        eventGroup: 0,
-      },
-      MESG.EVENT
-    ) as never
+  tryWrite(
+    encoder,
+    withNum({ timestamp: firstTs, event: 0, eventType: 0, eventGroup: 0 }, MESG.EVENT),
+    "event(start)"
   );
 
-  for (const r of dedupedRecords) {
-    encoder.writeMesg(withNum(r, MESG.RECORD) as never);
+  for (let i = 0; i < dedupedRecords.length; i++) {
+    tryWrite(encoder, withNum(dedupedRecords[i], MESG.RECORD), `record[${i}]`);
   }
 
-  encoder.writeMesg(
-    withNum(
-      {
-        timestamp: lastTs2,
-        event: 0,
-        eventType: 4,
-        eventGroup: 0,
-      },
-      MESG.EVENT
-    ) as never
+  tryWrite(
+    encoder,
+    withNum({ timestamp: lastTs2, event: 0, eventType: 4, eventGroup: 0 }, MESG.EVENT),
+    "event(stop)"
   );
 
   const lap: AnyMesg = {
@@ -236,7 +322,7 @@ export function mergeFitFiles(files: (Buffer | ArrayBuffer)[], opts: MergeOption
     lapTrigger: 7,
     messageIndex: 0,
   };
-  encoder.writeMesg(withNum(lap, MESG.LAP) as never);
+  tryWrite(encoder, withNum(lap, MESG.LAP), "lap");
 
   const session: AnyMesg = {
     timestamp: lastTs2,
@@ -260,7 +346,7 @@ export function mergeFitFiles(files: (Buffer | ArrayBuffer)[], opts: MergeOption
     trigger: 0,
     messageIndex: 0,
   };
-  encoder.writeMesg(withNum(session, MESG.SESSION) as never);
+  tryWrite(encoder, withNum(session, MESG.SESSION), "session");
 
   const activity: AnyMesg = {
     timestamp: lastTs2,
@@ -269,14 +355,19 @@ export function mergeFitFiles(files: (Buffer | ArrayBuffer)[], opts: MergeOption
     type: 0,
     event: 26,
     eventType: 1,
-    localTimestamp: lastTs2,
   };
-  encoder.writeMesg(withNum(activity, MESG.ACTIVITY) as never);
+  tryWrite(encoder, withNum(activity, MESG.ACTIVITY), "activity");
 
   if (opts.name) {
     // name reserved for future use (Strava handles name on upload)
   }
 
   const out = encoder.close();
-  return Buffer.from(out);
+  return {
+    buffer: Buffer.from(out),
+    startTime: firstTs,
+    endTime: lastTs2,
+    recordCount: dedupedRecords.length,
+    totalDistance,
+  };
 }
