@@ -117,7 +117,11 @@ export default function Dashboard() {
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <header className="border-b border-zinc-800 bg-zinc-900/40">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
-          <Link href="/" className="font-bold tracking-tight">Activity Editor</Link>
+          <Link href="/" className="flex items-center gap-2 font-bold tracking-tight">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.svg" alt="" width={28} height={28} />
+            Activity Merger
+          </Link>
           <div className="flex items-center gap-3 text-sm">
             <span className="text-zinc-500">Strava:</span>
             <span className={me?.strava?.connected ? "text-green-400" : "text-zinc-500"}>

@@ -3,6 +3,9 @@ import { z } from "zod";
 import { loginWithPassword, saveGarminSession } from "@/lib/garmin";
 import { getOrCreateUser, readSession, setSessionCookie } from "@/lib/session";
 
+export const maxDuration = 30;
+export const runtime = "nodejs";
+
 const body = z.object({
   username: z.string().min(1),
   password: z.string().min(1),

@@ -1,10 +1,17 @@
 import Link from "next/link";
+import Image from "next/image";
 
 export default function Home() {
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
       <div className="mx-auto max-w-3xl px-6 py-24">
-        <h1 className="text-5xl font-bold tracking-tight">
+        <div className="flex items-center gap-3">
+          <Image src="/logo.svg" alt="" width={44} height={44} priority />
+          <span className="text-sm font-semibold tracking-widest text-zinc-400 uppercase">
+            Activity Merger
+          </span>
+        </div>
+        <h1 className="mt-10 text-5xl font-bold tracking-tight">
           Merge split activities.
         </h1>
         <p className="mt-6 text-xl text-zinc-400">

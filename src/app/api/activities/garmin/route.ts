@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/session";
 import { listGarminActivities } from "@/lib/garmin";
 
+export const maxDuration = 30;
+export const runtime = "nodejs";
+
 export async function GET(req: Request) {
   try {
     const userId = await requireUser();

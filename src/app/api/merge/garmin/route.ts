@@ -9,6 +9,9 @@ import {
 import { mergeFitFiles } from "@/lib/fit-merge";
 import { supabaseAdmin } from "@/lib/supabase";
 
+export const maxDuration = 60;
+export const runtime = "nodejs";
+
 const body = z.object({
   activityIds: z.array(z.number().int()).min(2),
   name: z.string().optional(),
@@ -66,13 +69,14 @@ export async function POST(req: NextRequest) {
     }).eq("id", job.id);
     return NextResponse.json({ result });
   } catch (e) {
-    const msg = (e as Error).message;
+    const err = e as Error;
+    console.error("[merge/garmin] failed:", err.stack ?? err.message);
     await sb.from("merge_jobs").update({
       status: "failed",
-      error: msg,
+      error: err.message,
       completed_at: new Date().toISOString(),
     }).eq("id", job.id);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
 
