@@ -1,9 +1,31 @@
 import Link from "next/link";
 import Image from "next/image";
 
+const siteUrl = process.env.APP_URL ?? "http://localhost:3000";
+
+const structuredData = {
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  name: "Activity Merger",
+  url: siteUrl,
+  applicationCategory: "HealthApplication",
+  operatingSystem: "Web",
+  description:
+    "Merge split workouts into one activity on Strava and Garmin. Fix your watch's accidental laps and delete the broken originals automatically.",
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
+  },
+};
+
 export default function Home() {
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
       <div className="mx-auto max-w-3xl px-6 py-24">
         <div className="flex items-center gap-3">
           <Image src="/logo.svg" alt="" width={44} height={44} priority />

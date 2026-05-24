@@ -1,7 +1,17 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
-export const metadata = {
-  title: "Privacy — Activity Merger",
+export const metadata: Metadata = {
+  title: "Privacy",
+  description:
+    "How Activity Merger handles your Strava and Garmin data when merging split workouts.",
+  alternates: { canonical: "/privacy" },
+  openGraph: {
+    title: "Privacy - Activity Merger",
+    description:
+      "How Activity Merger handles your Strava and Garmin data when merging split workouts.",
+    url: "/privacy",
+  },
 };
 
 export default function Privacy() {

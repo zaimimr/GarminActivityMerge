@@ -1,7 +1,17 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
-export const metadata = {
-  title: "Terms — Activity Merger",
+export const metadata: Metadata = {
+  title: "Terms",
+  description:
+    "Terms of use for Activity Merger, the tool for merging split workouts on Strava and Garmin.",
+  alternates: { canonical: "/terms" },
+  openGraph: {
+    title: "Terms - Activity Merger",
+    description:
+      "Terms of use for Activity Merger, the tool for merging split workouts on Strava and Garmin.",
+    url: "/terms",
+  },
 };
 
 export default function Terms() {
