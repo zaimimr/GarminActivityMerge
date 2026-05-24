@@ -20,7 +20,7 @@ const description =
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Activity Merger - Combine split runs and rides on Strava and Garmin",
+    default: "Activity Merger",
     template: "%s - Activity Merger",
   },
   description,
@@ -47,7 +47,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     siteName: "Activity Merger",
-    title: "Activity Merger - Combine split runs and rides on Strava and Garmin",
+    title: "Activity Merger",
     description,
     url: "/",
     locale: "en_US",
@@ -62,7 +62,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary",
-    title: "Activity Merger - Combine split runs and rides on Strava and Garmin",
+    title: "Activity Merger",
     description,
     images: ["/logo.svg"],
   },
