@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { fetchWithCsrf } from "@/lib/fetch-csrf";
 
@@ -98,6 +98,16 @@ export default function Dashboard() {
     void load();
     void loadJobs();
   }, [load, loadJobs]);
+
+  const autoPickedRef = useRef(false);
+  useEffect(() => {
+    if (!me || autoPickedRef.current) return;
+    autoPickedRef.current = true;
+    const stravaOn = !!me.strava?.connected;
+    const garminOn = !!me.garmin?.connected;
+    if (!stravaOn && garminOn) setPlatform("garmin");
+    else if (!garminOn && stravaOn) setPlatform("strava");
+  }, [me]);
 
   function toggle(id: number) {
     setSelected((s) => {
