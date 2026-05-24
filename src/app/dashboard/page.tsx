@@ -252,12 +252,24 @@ export default function Dashboard() {
             <p className="text-zinc-300">
               {platform === "strava" ? "Strava" : "Garmin"} not connected.
             </p>
-            <Link
-              href={platform === "strava" ? "/api/auth/strava" : "/connect/garmin"}
-              className="mt-3 inline-block rounded-md bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white"
-            >
-              Connect {platform === "strava" ? "Strava" : "Garmin"}
-            </Link>
+            {platform === "strava" ? (
+              <button
+                type="button"
+                disabled
+                aria-disabled="true"
+                title="Pending Strava API approval"
+                className="mt-3 inline-block cursor-not-allowed rounded-md bg-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-400"
+              >
+                Connect Strava (in progress)
+              </button>
+            ) : (
+              <Link
+                href="/connect/garmin"
+                className="mt-3 inline-block rounded-md bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-white"
+              >
+                Connect Garmin
+              </Link>
+            )}
           </div>
         )}
 

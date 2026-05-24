@@ -20,12 +20,15 @@ export default function Home() {
         </p>
 
         <div className="mt-12 grid gap-4 sm:grid-cols-2">
-          <Link
-            href="/api/auth/strava"
-            className="block rounded-xl bg-orange-600 px-6 py-5 text-center font-semibold hover:bg-orange-500"
+          <button
+            type="button"
+            disabled
+            aria-disabled="true"
+            title="Pending Strava API approval"
+            className="block w-full cursor-not-allowed rounded-xl bg-orange-600/40 px-6 py-5 text-center font-semibold text-zinc-300"
           >
-            Connect Strava
-          </Link>
+            Connect Strava (in progress)
+          </button>
           <Link
             href="/connect/garmin"
             className="block rounded-xl bg-blue-600 px-6 py-5 text-center font-semibold hover:bg-blue-500"
