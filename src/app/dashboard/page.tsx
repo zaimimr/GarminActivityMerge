@@ -50,8 +50,6 @@ export default function Dashboard() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mergeName, setMergeName] = useState("");
-  const [deleteOriginals, setDeleteOriginals] = useState(true);
   const [merging, setMerging] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [errorDetail, setErrorDetail] = useState<{ title?: string; hint?: string; code?: string; message: string } | null>(null);
@@ -126,8 +124,7 @@ export default function Dashboard() {
     try {
       const body = {
         activityIds: Array.from(selected),
-        name: mergeName || undefined,
-        deleteOriginals,
+        deleteOriginals: true,
       };
       const r = await fetchWithCsrf(`/api/merge/${platform}`, {
         method: "POST",
@@ -363,26 +360,11 @@ export default function Dashboard() {
               <div className="sticky bottom-4 mt-6 rounded-lg border border-zinc-700 bg-zinc-900 p-4 shadow-xl">
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="text-sm text-zinc-300">{selected.size} activities selected</span>
-                  <input
-                    type="text"
-                    value={mergeName}
-                    onChange={(e) => setMergeName(e.target.value)}
-                    placeholder="Merged activity name (optional)"
-                    className="flex-1 min-w-[200px] rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
-                  />
-                  <label className="flex items-center gap-2 text-sm text-zinc-400">
-                    <input
-                      type="checkbox"
-                      checked={deleteOriginals}
-                      onChange={(e) => setDeleteOriginals(e.target.checked)}
-                      className="h-4 w-4 accent-red-500"
-                    />
-                    Delete originals
-                  </label>
+                  <span className="text-xs text-zinc-500">Originals will be deleted</span>
                   <button
                     onClick={merge}
                     disabled={merging}
-                    className="rounded-md bg-orange-600 px-4 py-2 text-sm font-semibold hover:bg-orange-500 disabled:opacity-50"
+                    className="ml-auto rounded-md bg-orange-600 px-4 py-2 text-sm font-semibold hover:bg-orange-500 disabled:opacity-50"
                   >
                     {merging ? "Merging..." : "Merge selected"}
                   </button>
