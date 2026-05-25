@@ -55,10 +55,13 @@ export default function Terms() {
 
           <h2 className="text-lg font-semibold text-zinc-100">Liability</h2>
           <p>
-            We are not liable for loss of activity data, training disruptions,
-            or any indirect damages. Worst case: an activity is deleted on a
-            platform and our retry fails. In that case, the original FIT bytes
-            are available in our storage for restore; see Privacy for retention.
+            Use of Activity Merger is at your own risk. Activity Merger and its
+            owner are not liable for any activities lost, corrupted, or
+            otherwise altered as a result of using the service, nor for training
+            disruptions or any indirect damages. Worst case: an activity is
+            deleted on a platform and our retry fails. In that case, the
+            original FIT bytes are available in our storage for restore; see
+            Privacy for retention.
           </p>
 
           <h2 className="text-lg font-semibold text-zinc-100">Contact</h2>

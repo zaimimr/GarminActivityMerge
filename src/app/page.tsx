@@ -81,6 +81,9 @@ export default function Home() {
           <p className="text-xs text-zinc-500">
             Pre-release. We are not affiliated with Strava or Garmin.
           </p>
+          <p className="text-xs text-amber-400/70">
+            Use at your own risk. Activity Merger and its owner are not liable for any activities lost or corrupted during use. See <Link href="/terms" className="underline">Terms</Link>.
+          </p>
           <p className="text-xs text-zinc-600">
             <Link href="/privacy" className="hover:text-zinc-400">Privacy</Link>
             {" · "}
