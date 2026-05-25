@@ -369,9 +369,6 @@ export default function Dashboard() {
                     {merging ? "Merging..." : "Merge selected"}
                   </button>
                 </div>
-                <p className="mt-3 text-xs text-amber-400/80">
-                  Use at your own risk. Activity Merger and its owner are not liable for any activities lost or corrupted during merge. See <Link href="/terms" className="underline">Terms</Link>.
-                </p>
               </div>
             )}
 
