@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/cleanup-storage",
       "schedule": "17 3 * * *"
+    },
+    {
+      "path": "/api/cron/reap-strava",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

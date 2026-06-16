@@ -23,6 +23,7 @@ export type StravaTokenRow = {
   expires_at: string;
   scope: string | null;
   updated_at: string;
+  last_used_at: string;
 };
 
 export type GarminSessionRow = {

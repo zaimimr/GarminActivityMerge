@@ -162,6 +162,30 @@ export default function Dashboard() {
     await undoJob(lastJobId);
   }
 
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  async function disconnectStrava() {
+    if (
+      !confirm(
+        "Disconnect Strava? This frees a connection slot and removes the ability to restore originals for this session."
+      )
+    )
+      return;
+    setDisconnecting(true);
+    setError(null);
+    try {
+      const r = await fetchWithCsrf("/api/auth/strava/disconnect", { method: "POST" });
+      if (!r.ok) throw new Error("Disconnect failed");
+      setStrava([]);
+      setSelected(new Set());
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
   async function undoJob(jobId: string) {
     if (!confirm("Re-upload originals and delete the merged activity?")) return;
     setUndoingJobId(jobId);
@@ -223,6 +247,15 @@ export default function Dashboard() {
             <span className={me?.strava?.connected ? "text-green-400" : "text-zinc-500"}>
               {me?.strava?.connected ? "connected" : "off"}
             </span>
+            {me?.strava?.connected && (
+              <button
+                onClick={disconnectStrava}
+                disabled={disconnecting}
+                className="rounded-md border border-zinc-700 px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {disconnecting ? "Disconnecting..." : "Disconnect"}
+              </button>
+            )}
             <span className="text-zinc-500">Garmin:</span>
             <span className={me?.garmin?.connected ? "text-green-400" : "text-zinc-500"}>
               {me?.garmin?.connected ? "connected" : "off"}
@@ -260,15 +293,12 @@ export default function Dashboard() {
               {platform === "strava" ? "Strava" : "Garmin"} not connected.
             </p>
             {platform === "strava" ? (
-              <button
-                type="button"
-                disabled
-                aria-disabled="true"
-                title="Pending Strava API approval"
-                className="mt-3 inline-block cursor-not-allowed rounded-md bg-zinc-700 px-4 py-2 text-sm font-semibold text-zinc-400"
+              <a
+                href="/api/auth/strava"
+                className="mt-3 inline-block rounded-md bg-[#fc4c02] px-4 py-2 text-sm font-semibold text-white hover:bg-[#e34402]"
               >
-                Connect Strava (in progress)
-              </button>
+                Connect Strava
+              </a>
             ) : (
               <Link
                 href="/connect/garmin"

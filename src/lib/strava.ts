@@ -3,6 +3,9 @@ import { supabaseAdmin, StravaTokenRow } from "./supabase";
 const STRAVA_API = "https://www.strava.com/api/v3";
 const STRAVA_OAUTH = "https://www.strava.com/oauth";
 
+export const STRAVA_ATHLETE_CAP = Number(process.env.STRAVA_ATHLETE_CAP ?? 10);
+export const STRAVA_IDLE_MINUTES = Number(process.env.STRAVA_IDLE_MINUTES ?? 120);
+
 export type StravaActivity = {
   id: number;
   name: string;
@@ -85,7 +88,12 @@ export async function getStravaToken(userId: string): Promise<StravaTokenRow | n
     .eq("user_id", userId)
     .maybeSingle();
   if (!data) return null;
-  return await refreshIfNeeded(data as StravaTokenRow);
+  const tok = await refreshIfNeeded(data as StravaTokenRow);
+  await supabaseAdmin()
+    .from("strava_tokens")
+    .update({ last_used_at: new Date().toISOString() })
+    .eq("user_id", userId);
+  return tok;
 }
 
 export async function saveStravaToken(userId: string, t: {
@@ -103,8 +111,71 @@ export async function saveStravaToken(userId: string, t: {
     expires_at: new Date(t.expires_at * 1000).toISOString(),
     scope: t.scope ?? null,
     updated_at: new Date().toISOString(),
+    last_used_at: new Date().toISOString(),
   };
   await supabaseAdmin().from("strava_tokens").upsert(row);
+}
+
+export async function deauthorizeStrava(userId: string): Promise<void> {
+  const sb = supabaseAdmin();
+  const { data } = await sb
+    .from("strava_tokens")
+    .select("*")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (data) {
+    try {
+      const tok = await refreshIfNeeded(data as StravaTokenRow);
+      await fetch(`${STRAVA_OAUTH}/deauthorize`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tok.access_token}` },
+      });
+    } catch {
+    }
+  }
+  await sb.from("strava_tokens").delete().eq("user_id", userId);
+}
+
+export async function countActiveAthletes(): Promise<number> {
+  const { count } = await supabaseAdmin()
+    .from("strava_tokens")
+    .select("user_id", { count: "exact", head: true });
+  return count ?? 0;
+}
+
+async function reapUserIds(userIds: string[]): Promise<number> {
+  let reaped = 0;
+  for (const userId of userIds) {
+    await deauthorizeStrava(userId);
+    reaped++;
+  }
+  return reaped;
+}
+
+export async function reapOldestIdle(n: number): Promise<number> {
+  if (n <= 0) return 0;
+  const { data } = await supabaseAdmin()
+    .from("strava_tokens")
+    .select("user_id")
+    .order("last_used_at", { ascending: true })
+    .limit(n);
+  return await reapUserIds((data ?? []).map((r) => r.user_id as string));
+}
+
+export async function reapIdleAthletes(idleMinutes: number): Promise<number> {
+  const cutoff = new Date(Date.now() - idleMinutes * 60_000).toISOString();
+  const { data } = await supabaseAdmin()
+    .from("strava_tokens")
+    .select("user_id")
+    .lt("last_used_at", cutoff);
+  return await reapUserIds((data ?? []).map((r) => r.user_id as string));
+}
+
+export async function ensureStravaCapacity(): Promise<void> {
+  const count = await countActiveAthletes();
+  if (count >= STRAVA_ATHLETE_CAP) {
+    await reapOldestIdle(count - STRAVA_ATHLETE_CAP + 1);
+  }
 }
 
 export async function listActivities(
