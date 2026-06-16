@@ -16,6 +16,7 @@
     "@garmin/fitsdk": "^21.205.0",
     "@supabase/supabase-js": "^2.106.1",
     "@types/adm-zip": "^0.5.8",
+    "@vercel/analytics": "^2.0.1",
     "adm-zip": "^0.5.17",
     "garmin-connect": "^1.6.2",
     "jose": "^5.10.0",

@@ -17,19 +17,6 @@ function emit(level: LogLevel, scope: string, msg: string, fields: Fields = {}):
   if (level === "error") console.error(line);
   else if (level === "warn") console.warn(line);
   else console.log(line);
-  if ((level === "error" || level === "warn") && process.env.SLACK_WEBHOOK_URL) {
-    import("./slack")
-      .then(({ postSlackAlert }) =>
-        postSlackAlert({
-          title: `${level === "error" ? "Error" : "Warning"} in ${scope}`,
-          scope,
-          msg,
-          level,
-          fields,
-        })
-      )
-      .catch(() => {});
-  }
 }
 
 export function logger(scope: string) {

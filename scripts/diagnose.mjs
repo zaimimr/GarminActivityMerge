@@ -25,6 +25,7 @@ for (const j of data) {
   console.log("id:", j.id);
   console.log("platform:", j.platform);
   console.log("status:", j.status);
+  console.log("error:", j.error ?? "(NULL)");
   console.log("result_activity_id:", j.result_activity_id);
   console.log("result_start_time:", j.result_start_time ?? "(NULL)");
   console.log("originals_storage_keys.length:", j.originals_storage_keys?.length ?? 0);
