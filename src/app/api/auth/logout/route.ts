@@ -1,14 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
-import { clearSession, readSession } from "@/lib/session";
-import { deauthorizeStrava } from "@/lib/strava";
-import { verifyCsrf, csrfRejection, CSRF_HEADER } from "@/lib/csrf";
+import { NextResponse } from "next/server";
+import { clearGarminSession } from "@/lib/session";
 
 export const runtime = "nodejs";
 
-export async function POST(req: NextRequest) {
-  if (!(await verifyCsrf(req.headers.get(CSRF_HEADER)))) return csrfRejection();
-  const s = await readSession();
-  if (s) await deauthorizeStrava(s.userId);
-  await clearSession();
+export async function POST() {
+  await clearGarminSession();
   return NextResponse.json({ ok: true });
 }

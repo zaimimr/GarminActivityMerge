@@ -1,0 +1,275 @@
+import AdmZip from "adm-zip";
+import { AppError } from "@/lib/errors";
+import { networkError, USER_AGENT_MOBILE } from "./http";
+import { refreshAccessToken } from "./auth";
+import type { GarminActivity, GarminSession } from "./types";
+
+const API = "https://connectapi.garmin.com";
+/** Refresh the bearer token this long before it actually expires. */
+const REFRESH_MARGIN_MS = 60_000;
+
+export type UploadOutcome = {
+  activityId: string | null;
+  uploadUuid: string | null;
+  failures: string[];
+};
+
+/**
+ * Thin client over Garmin Connect's mobile API. Holds the session in memory for
+ * the lifetime of one request; if the bearer token is refreshed, `tokensChanged`
+ * flips so the route can re-seal the session cookie.
+ */
+export class GarminClient {
+  private session: GarminSession;
+  tokensChanged = false;
+
+  constructor(session: GarminSession) {
+    this.session = session;
+  }
+
+  get current(): GarminSession {
+    return this.session;
+  }
+
+  private async bearer(): Promise<string> {
+    if (this.session.expiresAt - REFRESH_MARGIN_MS > Date.now()) return this.session.accessToken;
+    const refreshed = await refreshAccessToken(this.session.oauth1);
+    this.session = { ...this.session, ...refreshed };
+    this.tokensChanged = true;
+    return this.session.accessToken;
+  }
+
+  private async request(
+    path: string,
+    init: RequestInit & { accept?: string } = {}
+  ): Promise<Response> {
+    const target = path.startsWith("http") ? path : `${API}${path}`;
+    const headers = new Headers(init.headers ?? {});
+    headers.set("Authorization", `Bearer ${await this.bearer()}`);
+    headers.set("User-Agent", USER_AGENT_MOBILE);
+    headers.set("di-backend", "connectapi.garmin.com");
+    if (init.accept) headers.set("Accept", init.accept);
+
+    let res: Response;
+    try {
+      res = await fetch(target, { ...init, headers });
+    } catch (e) {
+      throw networkError(target, e);
+    }
+
+    if (res.status === 401 || res.status === 403) {
+      throw new AppError({
+        code: "AUTH_EXPIRED",
+        title: "Your Garmin session expired.",
+        message: `${res.status} from ${path}`,
+        hint: "Sign in again to continue.",
+        status: 401,
+      });
+    }
+    return res;
+  }
+
+  private async json<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const res = await this.request(path, { ...init, accept: "application/json" });
+    if (!res.ok) {
+      throw new AppError({
+        code: "INTERNAL",
+        title: "Garmin returned an error.",
+        message: `${res.status} from ${path}: ${truncate(await res.text().catch(() => ""), 300)}`,
+        status: res.status >= 500 ? 502 : res.status,
+      });
+    }
+    return (await res.json()) as T;
+  }
+
+  async displayName(): Promise<string> {
+    const profile = await this.json<{ displayName?: string; userName?: string; fullName?: string }>(
+      "/userprofile-service/socialProfile"
+    );
+    return profile.fullName ?? profile.userName ?? profile.displayName ?? "Garmin athlete";
+  }
+
+  async listActivities(start = 0, limit = 30): Promise<GarminActivity[]> {
+    return this.json<GarminActivity[]>(
+      `/activitylist-service/activities/search/activities?start=${start}&limit=${limit}`
+    );
+  }
+
+  async activityDetails(activityId: number): Promise<Record<string, unknown>> {
+    return this.json<Record<string, unknown>>(`/activity-service/activity/${activityId}`);
+  }
+
+  /** Original recording as uploaded by the watch, unwrapped from Garmin's zip. */
+  async downloadOriginalFit(activityId: number): Promise<Buffer> {
+    const res = await this.request(`/download-service/files/activity/${activityId}`, {
+      accept: "application/octet-stream",
+    });
+    if (res.status === 404) {
+      throw new AppError({
+        code: "ACTIVITY_NOT_FOUND",
+        title: `Garmin has no original file for activity ${activityId}.`,
+        message: `download-service returned 404 for ${activityId}`,
+        hint: "Manually entered activities have no FIT recording to merge.",
+        status: 404,
+      });
+    }
+    if (!res.ok) {
+      throw new AppError({
+        code: "INTERNAL",
+        title: "Could not download the original recording.",
+        message: `download-service returned ${res.status} for ${activityId}`,
+        status: 502,
+      });
+    }
+
+    const raw = Buffer.from(await res.arrayBuffer());
+    const fit = isZip(raw) ? unzipFit(raw, activityId) : raw;
+    if (!isFit(fit)) {
+      throw new AppError({
+        code: "ACTIVITY_NOT_FIT",
+        title: `Activity ${activityId} is not a FIT recording.`,
+        message: `Downloaded ${fit.length} bytes with no FIT header.`,
+        hint: "Only watch-recorded activities can be merged.",
+        status: 422,
+      });
+    }
+    return fit;
+  }
+
+  async uploadFit(buf: Buffer, filename = "merged.fit"): Promise<UploadOutcome> {
+    const form = new FormData();
+    form.append("file", new Blob([new Uint8Array(buf)], { type: "application/octet-stream" }), filename);
+
+    const res = await this.request("/upload-service/upload/.fit", {
+      method: "POST",
+      body: form,
+      accept: "application/json",
+    });
+    const text = await res.text();
+    if (!res.ok && res.status !== 201 && res.status !== 202) {
+      throw new AppError({
+        code: res.status === 409 ? "DEDUP_REJECTED" : "UPLOAD_FAILED",
+        title:
+          res.status === 409
+            ? "Garmin rejected the merged activity as a duplicate."
+            : "Garmin rejected the merged upload.",
+        message: `upload-service returned ${res.status}: ${truncate(text, 400)}`,
+        status: res.status === 409 ? 409 : 502,
+      });
+    }
+
+    const parsed = safeJson(text) as
+      | { detailedImportResult?: Record<string, unknown> }
+      | null;
+    const detail = parsed?.detailedImportResult;
+    const successes = (detail?.successes as Array<{ internalId?: number }> | undefined) ?? [];
+    const failures = (detail?.failures as Array<{ messages?: Array<{ content?: string }> }> | undefined) ?? [];
+    const uuid = (detail?.uploadUuid as { uuid?: string } | undefined)?.uuid ?? null;
+
+    return {
+      activityId: successes[0]?.internalId ? String(successes[0].internalId) : null,
+      uploadUuid: uuid,
+      failures: failures.flatMap((f) => (f.messages ?? []).map((m) => m.content ?? "")).filter(Boolean),
+    };
+  }
+
+  /** Uploads are processed asynchronously; poll until Garmin assigns an id. */
+  async pollUpload(
+    uploadUuid: string,
+    { timeoutMs = 25_000, intervalMs = 2_000 } = {}
+  ): Promise<{ activityId: string | null; failures: string[]; timedOut: boolean }> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await sleep(intervalMs);
+      const res = await this.request(`/upload-service/upload/${uploadUuid}`, {
+        accept: "application/json",
+      });
+      if (res.status === 404) continue;
+      const parsed = safeJson(await res.text()) as
+        | { detailedImportResult?: Record<string, unknown> }
+        | null;
+      const detail = parsed?.detailedImportResult;
+      if (!detail) continue;
+      const successes = (detail.successes as Array<{ internalId?: number }> | undefined) ?? [];
+      const failures = (detail.failures as Array<{ messages?: Array<{ content?: string }> }> | undefined) ?? [];
+      if (failures.length > 0) {
+        return {
+          activityId: null,
+          failures: failures.flatMap((f) => (f.messages ?? []).map((m) => m.content ?? "")).filter(Boolean),
+          timedOut: false,
+        };
+      }
+      if (successes[0]?.internalId) {
+        return { activityId: String(successes[0].internalId), failures: [], timedOut: false };
+      }
+    }
+    return { activityId: null, failures: [], timedOut: true };
+  }
+
+  async deleteActivity(activityId: number): Promise<void> {
+    const res = await this.request(`/activity-service/activity/${activityId}`, {
+      method: "DELETE",
+      accept: "application/json",
+    });
+    if (res.status === 404) return; // already gone
+    if (res.status !== 200 && res.status !== 204) {
+      throw new AppError({
+        code: "DELETE_FAILED",
+        title: `Could not delete activity ${activityId}.`,
+        message: `activity-service DELETE returned ${res.status}: ${truncate(await res.text().catch(() => ""), 300)}`,
+        status: 502,
+      });
+    }
+  }
+
+  /** Best-effort rename; Garmin names uploads after the device otherwise. */
+  async renameActivity(activityId: number, name: string): Promise<boolean> {
+    const res = await this.request(`/activity-service/activity/${activityId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Http-Method-Override": "PUT" },
+      body: JSON.stringify({ activityId, activityName: name }),
+      accept: "application/json",
+    });
+    return res.ok;
+  }
+}
+
+function isZip(buf: Buffer): boolean {
+  return buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4b;
+}
+
+function isFit(buf: Buffer): boolean {
+  return (
+    buf.length >= 12 && buf[8] === 0x2e && buf[9] === 0x46 && buf[10] === 0x49 && buf[11] === 0x54
+  );
+}
+
+function unzipFit(buf: Buffer, activityId: number): Buffer {
+  const entries = new AdmZip(buf).getEntries();
+  const entry = entries.find((e) => e.entryName.toLowerCase().endsWith(".fit")) ?? entries[0];
+  if (!entry) {
+    throw new AppError({
+      code: "ACTIVITY_NOT_FIT",
+      title: `Garmin's export for activity ${activityId} was empty.`,
+      message: "Downloaded zip contained no entries.",
+      status: 422,
+    });
+  }
+  return entry.getData();
+}
+
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? `${s.slice(0, n)}...` : s;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}

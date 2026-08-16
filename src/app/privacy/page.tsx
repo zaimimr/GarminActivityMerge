@@ -1,81 +1,96 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+const description =
+  "Activity Merger stores nothing: no database, no accounts, no copies of your Garmin data.";
+
 export const metadata: Metadata = {
   title: "Privacy",
-  description:
-    "How Activity Merger handles your Strava and Garmin data when merging split workouts.",
+  description,
   alternates: { canonical: "/privacy" },
-  openGraph: {
-    title: "Privacy - Activity Merger",
-    description:
-      "How Activity Merger handles your Strava and Garmin data when merging split workouts.",
-    url: "/privacy",
-  },
+  openGraph: { title: "Privacy - Activity Merger", description, url: "/privacy" },
 };
 
 export default function Privacy() {
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100">
+    <main className="min-h-screen">
       <div className="mx-auto max-w-2xl px-6 py-16">
-        <Link href="/" className="text-sm text-zinc-400 hover:text-zinc-200">
-          ← Home
+        <Link href="/" className="text-sm text-ink-3 hover:text-ink">
+          ← Back
         </Link>
-        <h1 className="mt-6 text-3xl font-bold">Privacy</h1>
-        <p className="mt-2 text-sm text-zinc-500">Last updated 2026-05-23.</p>
+        <h1 className="mt-6 text-3xl font-semibold tracking-tight text-ink">Privacy</h1>
+        <p className="mt-2 text-sm text-ink-3">Last updated 2026-08-16.</p>
 
-        <section className="prose prose-invert mt-8 space-y-4 text-sm leading-6 text-zinc-300">
-          <p>
-            Activity Merger ("we") lets you combine split workout activities on
-            Strava and Garmin Connect. This page describes what we do with your
-            data.
-          </p>
+        <div className="mt-10 space-y-8 text-sm leading-6 text-ink-2">
+          <section>
+            <h2 className="text-base font-semibold text-ink">The short version</h2>
+            <p className="mt-2">
+              There is no database, no file storage and no user accounts. Your Garmin data passes
+              through the server while you are using the app and is gone the moment the request
+              ends. The only lasting copy of anything is the zip of your original recordings that
+              you download to your own machine.
+            </p>
+          </section>
 
-          <h2 className="text-lg font-semibold text-zinc-100">What we store</h2>
-          <ul className="ml-5 list-disc space-y-1">
-            <li>A user record with the email address you logged in with (if any).</li>
-            <li>OAuth tokens for Strava and session tokens for Garmin, so we can act on your behalf.</li>
-            <li>A row per merge job: the source activity IDs, the resulting activity ID, success / failure status, timestamps.</li>
-            <li>The original FIT files for activities you merge, in private object storage, so the merge can be undone. We delete these automatically 60 days after a successful merge.</li>
-            <li>The merged FIT file, in the same private storage, until the same retention window.</li>
-          </ul>
+          <section>
+            <h2 className="text-base font-semibold text-ink">Your Garmin credentials</h2>
+            <p className="mt-2">
+              Your email and password are sent to Garmin&apos;s sign-in service to obtain session
+              tokens. They are never written to disk or logged. The resulting tokens are encrypted
+              and placed in a cookie that only the server can read.
+            </p>
+            <p className="mt-2">
+              That cookie has no expiry date set, which makes it a browser-session cookie: closing
+              your browser signs you out. It also expires on its own after 12 hours.
+            </p>
+          </section>
 
-          <h2 className="text-lg font-semibold text-zinc-100">What we don't store</h2>
-          <ul className="ml-5 list-disc space-y-1">
-            <li>Your Strava or Garmin password.</li>
-            <li>Activity data beyond what's needed to merge (we don't analyse, sell, or share it).</li>
-            <li>Browsing analytics or third-party tracking.</li>
-          </ul>
+          <section>
+            <h2 className="text-base font-semibold text-ink">Your activity data</h2>
+            <p className="mt-2">
+              To build a preview and to merge, the server downloads the original FIT files from
+              Garmin, decodes them in memory, and returns chart data to your browser. Nothing is
+              written to disk. When the request finishes, the files are discarded.
+            </p>
+            <p className="mt-2">
+              When you approve a merge, the server deletes the original activities from your Garmin
+              account and uploads the merged file. That is the only change ever made to your Garmin
+              account.
+            </p>
+          </section>
 
-          <h2 className="text-lg font-semibold text-zinc-100">Third parties we send your data to</h2>
-          <ul className="ml-5 list-disc space-y-1">
-            <li><strong>Strava</strong> and <strong>Garmin Connect</strong> — we read activities from and upload merged activities to these accounts on your behalf.</li>
-            <li><strong>Supabase</strong> (database + object storage) — managed Postgres + S3-compatible storage hosted in the EU region.</li>
-            <li><strong>Vercel</strong> (hosting) — server logs include your user ID and job IDs but no activity content.</li>
-            <li><strong>Sentry</strong> (error reporting, optional) — if enabled, error stack traces and the offending job ID are sent. No FIT content.</li>
-          </ul>
+          <section>
+            <h2 className="text-base font-semibold text-ink">Third parties</h2>
+            <ul className="mt-2 list-disc space-y-1.5 pl-5">
+              <li>
+                <strong className="font-medium text-ink">Garmin Connect</strong> — where your
+                activities live. Governed by Garmin&apos;s own privacy policy.
+              </li>
+              <li>
+                <strong className="font-medium text-ink">Vercel</strong> — hosting. Request logs
+                (timestamps, status codes, error messages) are retained by Vercel. They contain
+                activity IDs, never credentials or activity content.
+              </li>
+              <li>
+                <strong className="font-medium text-ink">Vercel Analytics</strong> — anonymous page
+                view counts. No cookies, no cross-site tracking.
+              </li>
+              <li>
+                <strong className="font-medium text-ink">OpenStreetMap / CARTO</strong> — map tiles
+                for the route preview. Your browser requests tiles for the area your activity
+                covers, so those services see your IP address and the map area.
+              </li>
+            </ul>
+          </section>
 
-          <h2 className="text-lg font-semibold text-zinc-100">Disconnecting</h2>
-          <p>
-            Disconnect from the dashboard. Once disconnected we cannot act on
-            your account, but historical merge job records remain unless you
-            request deletion (see contact below). OAuth tokens can also be revoked
-            on Strava (Settings → My Apps) or by changing your Garmin password.
-          </p>
-
-          <h2 className="text-lg font-semibold text-zinc-100">Garmin Connect note</h2>
-          <p>
-            Garmin does not currently offer a public API for activity write, so
-            we sign in to Garmin Connect on your behalf using the same flow as
-            the official web site. Garmin's terms apply.
-          </p>
-
-          <h2 className="text-lg font-semibold text-zinc-100">Contact</h2>
-          <p>
-            Mail <a className="underline" href="mailto:zaim.imran@gmail.com">zaim.imran@gmail.com</a> to
-            request deletion of your data or with any privacy question.
-          </p>
-        </section>
+          <section>
+            <h2 className="text-base font-semibold text-ink">Deleting your data</h2>
+            <p className="mt-2">
+              Sign out, or close your browser. That is the whole procedure — there is nothing on
+              our side left to delete.
+            </p>
+          </section>
+        </div>
       </div>
     </main>
   );

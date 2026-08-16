@@ -1,74 +1,78 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+const description =
+  "Terms for using Activity Merger to merge split Garmin Connect activities.";
+
 export const metadata: Metadata = {
   title: "Terms",
-  description:
-    "Terms of use for Activity Merger, the tool for merging split workouts on Strava and Garmin.",
+  description,
   alternates: { canonical: "/terms" },
-  openGraph: {
-    title: "Terms - Activity Merger",
-    description:
-      "Terms of use for Activity Merger, the tool for merging split workouts on Strava and Garmin.",
-    url: "/terms",
-  },
+  openGraph: { title: "Terms - Activity Merger", description, url: "/terms" },
 };
 
 export default function Terms() {
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100">
+    <main className="min-h-screen">
       <div className="mx-auto max-w-2xl px-6 py-16">
-        <Link href="/" className="text-sm text-zinc-400 hover:text-zinc-200">
-          ← Home
+        <Link href="/" className="text-sm text-ink-3 hover:text-ink">
+          ← Back
         </Link>
-        <h1 className="mt-6 text-3xl font-bold">Terms of use</h1>
-        <p className="mt-2 text-sm text-zinc-500">Last updated 2026-05-23.</p>
+        <h1 className="mt-6 text-3xl font-semibold tracking-tight text-ink">Terms</h1>
+        <p className="mt-2 text-sm text-ink-3">Last updated 2026-08-16.</p>
 
-        <section className="prose prose-invert mt-8 space-y-4 text-sm leading-6 text-zinc-300">
-          <h2 className="text-lg font-semibold text-zinc-100">No warranty</h2>
-          <p>
-            Activity Merger is provided as-is. We do our best to preserve your
-            data (originals are stored before deletion so you can undo) but we
-            make no guarantees of uninterrupted service or data preservation.
-          </p>
+        <div className="mt-10 space-y-8 text-sm leading-6 text-ink-2">
+          <section>
+            <h2 className="text-base font-semibold text-ink">What this is</h2>
+            <p className="mt-2">
+              A free tool that merges two or more of your own Garmin Connect activities into one.
+              It is provided as-is, with no warranty and no uptime guarantee.
+            </p>
+          </section>
 
-          <h2 className="text-lg font-semibold text-zinc-100">Your responsibility</h2>
-          <ul className="ml-5 list-disc space-y-1">
-            <li>You authorize merging activities on the accounts you connect.</li>
-            <li>You retain ownership of all your activity data.</li>
-            <li>You agree not to abuse the service (no scraping, no automated bulk operations beyond personal use).</li>
-          </ul>
+          <section>
+            <h2 className="text-base font-semibold text-ink">Merging deletes things</h2>
+            <p className="mt-2">
+              A merge deletes the original activities from your Garmin account and uploads a new
+              one in their place. This is the point of the tool, and it cannot be undone from here
+              — there is no server-side copy to restore from.
+            </p>
+            <p className="mt-2">Two safety nets exist, and both are yours to use:</p>
+            <ul className="mt-2 list-disc space-y-1.5 pl-5">
+              <li>
+                The zip of original FIT files you download before approving. Re-import them at
+                Garmin Connect → Import Data.
+              </li>
+              <li>
+                Garmin&apos;s own Settings → Account → Recover Deleted Activities, which keeps
+                deleted activities for roughly 30 days.
+              </li>
+            </ul>
+            <p className="mt-2">
+              You are responsible for keeping that download. We accept no liability for lost
+              activity data.
+            </p>
+          </section>
 
-          <h2 className="text-lg font-semibold text-zinc-100">Third-party platforms</h2>
-          <p>
-            We act on your behalf against Strava and Garmin Connect. We are not
-            affiliated with, endorsed by, or sponsored by either platform.
-            Their terms apply to the activity data they hold.
-          </p>
+          <section>
+            <h2 className="text-base font-semibold text-ink">Relationship to Garmin</h2>
+            <p className="mt-2">
+              This project is not affiliated with, endorsed by, or sponsored by Garmin. It signs in
+              to Garmin Connect on your behalf using the same private API their mobile app uses.
+              Garmin may change or block that interface at any time, which would break this tool.
+              Using it may conflict with Garmin&apos;s terms of service; that judgement is yours.
+            </p>
+          </section>
 
-          <h2 className="text-lg font-semibold text-zinc-100">Termination</h2>
-          <p>
-            You can disconnect at any time from the dashboard. We can also
-            terminate accounts at our discretion for abuse or platform-rules
-            violations.
-          </p>
-
-          <h2 className="text-lg font-semibold text-zinc-100">Liability</h2>
-          <p>
-            Use of Activity Merger is at your own risk. Activity Merger and its
-            owner are not liable for any activities lost, corrupted, or
-            otherwise altered as a result of using the service, nor for training
-            disruptions or any indirect damages. Worst case: an activity is
-            deleted on a platform and our retry fails. In that case, the
-            original FIT bytes are available in our storage for restore; see
-            Privacy for retention.
-          </p>
-
-          <h2 className="text-lg font-semibold text-zinc-100">Contact</h2>
-          <p>
-            <a className="underline" href="mailto:zaim.imran@gmail.com">zaim.imran@gmail.com</a>
-          </p>
-        </section>
+          <section>
+            <h2 className="text-base font-semibold text-ink">Acceptable use</h2>
+            <p className="mt-2">
+              Use it on your own Garmin account only. Do not use it to falsify activity data for
+              competitions, leaderboards or anything else where the accuracy of a recording
+              matters to somebody other than you.
+            </p>
+          </section>
+        </div>
       </div>
     </main>
   );

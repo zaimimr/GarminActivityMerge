@@ -1,94 +1,81 @@
 # Runbook
 
-Last updated 2026-05-23.
+Last updated 2026-08-16.
 
-Quick fixes for things that go wrong in production.
+There is no database and no storage bucket, so most of the old runbook is gone.
+What remains is Garmin-side failure.
 
 ---
 
-## A user reports "0 km" / "merge did nothing"
+## Sign-in is broken for everyone
 
-1. Find the job: Supabase → `merge_jobs` table → filter by `user_id` and recent `created_at`.
-2. Run locally: `node scripts/inspect-merged.mjs` and `node scripts/inspect-originals.mjs` (they target the latest job).
-3. If sources have `distance=0` in their FIT records, the merge is faithful — the activity was indoor / wrist-stride based. Garmin enriches displayed distance server-side; we now fetch that via `getGarminActivityMetrics` and pass to the merge via `metricsOverride`. Verify the merge included the override.
-4. If sources DO have distance but merged shows 0, something's wrong with `mergeFitFiles` — open `src/lib/fit-merge.ts` and add a failing test in `src/lib/fit-merge.test.ts`.
+Symptom: every login returns `LOGIN_FLOW_CHANGED`, usually "Garmin's sign-in
+page looks different than expected" (the `_csrf` scrape failed) or "Garmin
+refused the login ticket".
 
-## A merge failed with `DEDUP_REJECTED` after deletes
+Garmin changed their SSO flow. The fix is in `src/lib/garmin/auth.ts`:
 
-1. The originals are still in our `originals` Supabase Storage bucket. The user can hit "Restore originals" in the UI, or call `POST /api/undo/<jobId>` manually.
-2. The merged FIT is at `${userId}/${jobId}/merged.fit` in the bucket if the user wants to upload it manually.
-3. Check Garmin Connect web → Settings → Account → "Recover Deleted Activities" — Garmin keeps deleted activities ~30 days.
+1. Compare against [garth](https://github.com/matin/garth) (`garth/sso.py`),
+   which tracks the same flow and is usually updated within days.
+2. The parts that drift are the signin query parameters (`SIGNIN_PARAMS`), the
+   `_csrf` / ticket regexes, and the MFA endpoint path.
+3. `npm test` won't catch this — the login flow has no test double. Verify by
+   signing in against a real account.
 
-## Garmin login broken for everyone
+## "Could not reach sso.garmin.com"
 
-`garmin-connect` reverse-engineers Garmin Connect's SSO. Garmin can change the flow at any time. Likely symptoms: every `loginWithPassword` throws, no users can connect Garmin.
+Code `NETWORK`. Either Garmin is down or the deployment has no outbound access
+to `garmin.com`. Check Garmin's status, then check whether the host allows
+outbound HTTPS to `sso.garmin.com`, `connectapi.garmin.com` and
+`thegarth.s3.amazonaws.com`.
 
-1. Update the lib: `npm install garmin-connect@latest`. The maintainers usually push a fix within days.
-2. If no upstream fix exists, look at the [garth Python lib](https://github.com/matin/garth) for the current login flow.
-3. Worst case: temporarily disable Garmin in UI by gating the connect button behind a feature flag.
+If only the S3 lookup fails, set `GARMIN_CONSUMER_KEY` and
+`GARMIN_CONSUMER_SECRET` and the app stops calling it.
 
-## Garmin's `deleteActivity` looks like it returned 200 but the activity is still there
+## A user's merge failed after the originals were deleted
 
-Already fixed in `src/lib/garmin.ts:deleteGarminActivity` (uses real HTTP DELETE via axios). If you see this again, audit `node_modules/garmin-connect/dist/common/HttpClient.js` for any new method using `X-Http-Method-Override`.
+This is the one genuinely bad case. The merge deletes first because Garmin
+rejects an upload that overlaps an existing activity.
 
-## Strava `export_original` returns 404 for an activity
+The error the user sees already says what to do; repeat it if they ask:
 
-Activity wasn't originally uploaded as FIT (phone-recorded). The fallback in `src/lib/strava-streams.ts:buildFitFromStravaActivity` builds a FIT from Strava's streams API. If that's also failing, check that the activity has `time` and `latlng` streams (`scripts/diagnose.mjs` against the user's strava activity ids).
+1. Re-import the zip they downloaded in step 1: Garmin Connect → Import Data.
+2. Failing that, Garmin Connect → Settings → Account → Recover Deleted
+   Activities keeps deletions for roughly 30 days.
 
-## Rate limit complaints
+There is nothing to restore from on our side — that is the deliberate trade for
+holding no user data. Check the logs for `scope=merge` and the `steps` array to
+see exactly how far the run got.
 
-`src/lib/rate-limit.ts` is in-memory per Vercel function instance. If you're hitting limits unfairly:
+## "Garmin rejected the upload as a duplicate"
 
-- Vercel function instances cold-start; bucket resets. Users may see different limits across instances.
-- For a stricter / globally-consistent limit, move to Upstash Redis with the @upstash/ratelimit package.
+Code `DEDUP_REJECTED`. Garmin still has an activity overlapping the merged
+file's time range — usually a delete that silently didn't take, or the user
+merged the same pair twice. Have them check Connect for a leftover original and
+delete it, then re-run from the downloaded zip.
 
-## Rotating secrets
+## A merge produced 0 km
 
-| Secret | Where | How |
-|--------|-------|-----|
-| `STRAVA_CLIENT_SECRET` | strava.com/settings/api | "Generate New Secret" → update Vercel env + `.env.local` |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase Project Settings → API → Rotate secret keys | Replaces immediately; update Vercel env |
-| `SESSION_SECRET` | n/a (you set it) | `openssl rand -hex 32`. **Rotating invalidates all sessions** — users must reconnect |
-| `CRON_SECRET` | n/a | `openssl rand -hex 32`. Update Vercel env. Vercel cron config auto-uses it. |
-| `SENTRY_DSN` | sentry.io | Project settings → Client Keys |
+The source recordings carry no `distance` in their records — normal for
+treadmill and indoor work, where Garmin computes distance server-side. The
+preview warns about this, and `merge-flow.ts` passes Garmin's own totals through
+`metricsOverride`. If the merged activity still shows 0 km, check that
+`activityDetails` returned a `summaryDTO.distance` for the sources.
 
-## Restoring originals manually
+## Reading logs
 
-If the Undo button can't reach the platform (e.g. user disconnected Garmin after the merge), bypass via the storage download endpoint:
+All API routes emit one JSON line per event via `src/lib/logger.ts`:
+`{ts, level, service, scope, msg, code?, activityIds?}`. Vercel parses these
+into filterable columns.
 
-```
-curl -L -o original.fit \
-  -H "Cookie: ae_session=<paste from browser>" \
-  -H "x-csrf-token: <paste from cookie>" \
-  https://activitymerger.vercel.app/api/jobs/<jobId>/download?which=original&index=0
-```
+- `scope:"merge" level:"error"` — failed merges, with the step log attached
+- `scope:"auth.login"` — sign-in failures, with the `code` naming the cause
+- `code:"LOGIN_FLOW_CHANGED"` — Garmin changed something
 
-User uploads `original.fit` manually via Garmin Connect web import.
+Activity IDs are logged. Credentials, tokens and activity content are not.
 
-## Storage filling up
+## Rotating the session secret
 
-Cron at `/api/cron/cleanup-storage` runs daily at 03:17 UTC, deletes originals + merged for `succeeded` jobs older than 60 days.
-
-To run on demand:
-```
-curl -H "Authorization: Bearer $CRON_SECRET" \
-  https://activitymerger.vercel.app/api/cron/cleanup-storage
-```
-
-## Database migrations
-
-```
-npm run migrate
-```
-
-Reads `SUPABASE_DB_URL` from `.env.local`, applies any new files in `supabase/migrations/` that aren't in the `schema_migrations` table yet. Idempotent.
-
-## Reading Vercel logs effectively
-
-All API routes emit JSON: `{ts, level, service, scope, msg, jobId?, code?, userId?, ...}`. Filter examples:
-
-- `scope:"merge.garmin" level:"error"` — all Garmin merge failures
-- `code:"DEDUP_REJECTED"` — all dedup-rejected uploads across users
-- `jobId:"<uuid>"` — full log trail for a specific job
-
-For long-term retention point Axiom or BetterStack at the Vercel log drain.
+`SESSION_SECRET` is the only secret. `openssl rand -hex 32`, update the env,
+redeploy. Every signed-in user is signed out immediately — no other effect,
+since nothing is stored under the old key.

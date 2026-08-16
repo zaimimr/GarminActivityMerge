@@ -16,50 +16,35 @@ const geistMono = Geist_Mono({
 const siteUrl = process.env.APP_URL ?? "http://localhost:3000";
 
 const description =
-  "Merge split workouts into one activity on Strava and Garmin. Fix your watch's accidental laps and delete the broken originals automatically.";
+  "Merge split Garmin activities into one. Preview the merged recording — elevation, heart rate, pace and route — before deleting anything.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "Activity Merger",
+    default: "Activity Merger — merge split Garmin activities",
     template: "%s - Activity Merger",
   },
   description,
   applicationName: "Activity Merger",
-  authors: [{ name: "Activity Merger" }],
-  creator: "Activity Merger",
-  publisher: "Activity Merger",
   keywords: [
-    "merge strava activities",
+    "merge garmin activities",
     "combine garmin activities",
+    "garmin connect merge",
     "split activity fix",
     "merge fit files",
     "join two runs",
-    "join two rides",
-    "garmin connect merge",
-    "strava merge tool",
-    "activity editor",
     "fit file merger",
   ],
   category: "fitness",
-  alternates: {
-    canonical: "/",
-  },
+  alternates: { canonical: "/" },
   openGraph: {
     type: "website",
     siteName: "Activity Merger",
-    title: "Activity Merger",
+    title: "Activity Merger — merge split Garmin activities",
     description,
     url: "/",
     locale: "en_US",
-    images: [
-      {
-        url: "/logo.svg",
-        width: 512,
-        height: 512,
-        alt: "Activity Merger",
-      },
-    ],
+    images: [{ url: "/logo.svg", width: 512, height: 512, alt: "Activity Merger" }],
   },
   twitter: {
     card: "summary",
@@ -78,42 +63,25 @@ export const metadata: Metadata = {
   robots: {
     index: true,
     follow: true,
-    googleBot: {
-      index: true,
-      follow: true,
-      "max-image-preview": "large",
-      "max-snippet": -1,
-      "max-video-preview": -1,
-    },
+    googleBot: { index: true, follow: true, "max-image-preview": "large", "max-snippet": -1 },
   },
-  formatDetection: {
-    telephone: false,
-    email: false,
-    address: false,
-  },
+  formatDetection: { telephone: false, email: false, address: false },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#09090b" },
-    { media: "(prefers-color-scheme: dark)", color: "#09090b" },
-  ],
+  themeColor: "#0b0d10",
   colorScheme: "dark",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body className="flex min-h-full flex-col">
         {children}
         <Analytics />
       </body>

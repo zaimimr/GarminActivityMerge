@@ -1,29 +1,32 @@
 export type ErrorCode =
   | "AUTH_REQUIRED"
   | "AUTH_EXPIRED"
-  | "PLATFORM_NOT_CONNECTED"
+  | "BAD_CREDENTIALS"
+  | "MFA_REQUIRED"
+  | "MFA_INVALID"
+  | "LOGIN_FLOW_CHANGED"
   | "ACTIVITY_NOT_FOUND"
   | "ACTIVITY_NOT_FIT"
+  | "MERGE_FAILED"
   | "DEDUP_REJECTED"
   | "UPLOAD_FAILED"
   | "DELETE_FAILED"
   | "RATE_LIMITED"
   | "NETWORK"
   | "VALIDATION"
-  | "STORAGE"
   | "INTERNAL";
 
 export type CategorizedError = {
   code: ErrorCode;
   title: string;
   hint?: string;
+  status: number;
 };
 
 export class AppError extends Error {
   code: ErrorCode;
   title: string;
   hint?: string;
-  cause?: unknown;
   status: number;
 
   constructor(opts: {
@@ -34,94 +37,78 @@ export class AppError extends Error {
     status?: number;
     cause?: unknown;
   }) {
-    super(opts.message ?? opts.title);
+    super(opts.message ?? opts.title, { cause: opts.cause });
+    this.name = "AppError";
     this.code = opts.code;
     this.title = opts.title;
     this.hint = opts.hint;
-    this.cause = opts.cause;
     this.status = opts.status ?? 500;
   }
 }
 
 export function categorize(raw: unknown): CategorizedError {
+  if (raw instanceof AppError) {
+    return { code: raw.code, title: raw.title, hint: raw.hint, status: raw.status };
+  }
+
   const msg = raw instanceof Error ? raw.message : String(raw);
   const m = msg.toLowerCase();
 
-  if (raw instanceof AppError) return { code: raw.code, title: raw.title, hint: raw.hint };
-
-  if (m.includes("duplicate activity") || m.includes("(409)")) {
+  if (m.includes("fetch failed") || m.includes("econnreset") || m.includes("etimedout") || m.includes("enotfound")) {
+    return {
+      code: "NETWORK",
+      title: "Network error talking to Garmin.",
+      hint: "Usually transient. Try again in a minute.",
+      status: 502,
+    };
+  }
+  if (m.includes("duplicate") || m.includes("409")) {
     return {
       code: "DEDUP_REJECTED",
-      title: "Platform rejected the upload as a duplicate.",
-      hint: "Your originals are safe in storage. Click 'Restore originals' to undo, or try again.",
+      title: "Garmin rejected the upload as a duplicate.",
+      hint: "Garmin thinks this activity already exists. Import your downloaded originals to restore them.",
+      status: 409,
     };
   }
   if (m.includes("not a fit file")) {
     return {
       code: "ACTIVITY_NOT_FIT",
-      title: "One of the activities isn't a FIT-recorded session.",
-      hint: "Phone-recorded Strava activities and manual entries don't have a FIT to merge.",
+      title: "That activity has no FIT recording.",
+      hint: "Manually entered activities have nothing to merge.",
+      status: 422,
     };
   }
-  if (m.includes("404") && m.includes("export_original")) {
-    return {
-      code: "ACTIVITY_NOT_FOUND",
-      title: "Strava could not export the original recording.",
-      hint: "Activity may have been phone-recorded. We'll attempt a streams-based fallback.",
-    };
-  }
-  if (m.includes("unauthorized") || m.includes("(401)") || m.includes("invalid_token") || m.includes("expired")) {
+  if (m.includes("401") || m.includes("unauthorized") || m.includes("expired")) {
     return {
       code: "AUTH_EXPIRED",
-      title: "Session with the platform expired.",
-      hint: "Disconnect and reconnect from the home screen.",
+      title: "Your Garmin session expired.",
+      hint: "Sign in again to continue.",
+      status: 401,
     };
   }
-  if (m.includes("not connected")) {
-    return {
-      code: "PLATFORM_NOT_CONNECTED",
-      title: "Platform not connected.",
-      hint: "Connect from the home screen first.",
-    };
-  }
-  if (m.includes("rate limit") || m.includes("(429)")) {
-    return {
-      code: "RATE_LIMITED",
-      title: "Hit the platform's rate limit.",
-      hint: "Wait a few minutes and try again.",
-    };
-  }
-  if (m.includes("storage") || m.includes("supabase")) {
-    return {
-      code: "STORAGE",
-      title: "Storage error.",
-      hint: "Likely a Supabase config or quota issue. Check the server logs.",
-    };
-  }
-  if (m.includes("network") || m.includes("fetch failed") || m.includes("econnreset") || m.includes("etimedout")) {
-    return {
-      code: "NETWORK",
-      title: "Network error talking to the platform.",
-      hint: "Transient; try again. If persistent, check platform status pages.",
-    };
-  }
-  if (m.includes("delete") && m.includes("failed")) {
-    return {
-      code: "DELETE_FAILED",
-      title: "Could not delete the original activity.",
-      hint: "The merged upload didn't happen. Originals untouched.",
-    };
-  }
-  if (m.includes("upload")) {
-    return {
-      code: "UPLOAD_FAILED",
-      title: "Upload of the merged activity failed.",
-      hint: "Originals are safe in storage. Use the Restore button to put them back if needed.",
-    };
-  }
+
   return {
     code: "INTERNAL",
     title: "Something went wrong.",
-    hint: "Check the server log line for the job ID below.",
+    hint: "The details below are the raw error. Nothing on Garmin was changed unless the step log says otherwise.",
+    status: 500,
+  };
+}
+
+/** Shape every API route returns on failure, so the UI can render it consistently. */
+export function errorPayload(raw: unknown): {
+  error: string;
+  code: ErrorCode;
+  title: string;
+  hint?: string;
+  status: number;
+} {
+  const cat = categorize(raw);
+  return {
+    error: raw instanceof Error ? raw.message : String(raw),
+    code: cat.code,
+    title: cat.title,
+    hint: cat.hint,
+    status: cat.status,
   };
 }
