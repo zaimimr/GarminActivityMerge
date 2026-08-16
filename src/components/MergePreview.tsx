@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Chart, Legend, type ChartBand, type ChartPoint, type ChartSegment } from "./Chart";
 import { TrackMap, type Track } from "./TrackMap";
 import { Button, Callout, Card, ErrorPanel, Field, inputClass } from "./ui";
+import { SlideToConfirm } from "./SlideToConfirm";
 import {
   MERGED_COLOR,
   formatDistance,
@@ -25,6 +26,15 @@ import {
 } from "@/lib/client-types";
 import type { StreamPoint, Totals } from "@/lib/fit-streams";
 
+type Phase = "idle" | "saving" | "merging";
+
+/** A step is done once the flow has moved past the phase that performs it. */
+function stepState(phase: Phase, runsDuring: Phase): "pending" | "current" | "done" {
+  if (phase === "idle") return "pending";
+  if (phase === runsDuring) return "current";
+  return runsDuring === "saving" ? "done" : "pending";
+}
+
 type Props = {
   preview: PreviewResponse;
   onBack: () => void;
@@ -33,10 +43,9 @@ type Props = {
 
 export function MergePreview({ preview, onBack, onMerged }: Props) {
   const [name, setName] = useState(preview.suggestedName);
-  const [downloaded, setDownloaded] = useState(false);
-  const [downloading, setDownloading] = useState(false);
-  const [merging, setMerging] = useState(false);
+  const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<ApiError | null>(null);
+  const running = phase === "saving" || phase === "merging";
 
   const activityIds = preview.sources.map((s) => s.activityId);
   const segments = useMemo(() => buildSegments(preview), [preview]);
@@ -55,37 +64,19 @@ export function MergePreview({ preview, onBack, onMerged }: Props) {
     }))
     .filter((t) => t.points.length > 1);
 
-  async function downloadOriginals() {
-    setDownloading(true);
+  /** Saves the originals to disk, then merges. Confirmation gates both. */
+  async function confirmAndMerge() {
     setError(null);
+    setPhase("saving");
     try {
-      const res = await fetchWithCsrf("/api/originals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ activityIds }),
-      });
-      if (!res.ok) throw toApiError(await res.json().catch(() => ({})));
-
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `garmin-originals-${activityIds.join("-")}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      setDownloaded(true);
+      await downloadOriginals();
     } catch (e) {
       setError(asApiError(e));
-    } finally {
-      setDownloading(false);
+      setPhase("idle");
+      return;
     }
-  }
 
-  async function runMerge() {
-    setMerging(true);
-    setError(null);
+    setPhase("merging");
     try {
       const result = await postJson<MergeResponse>("/api/merge", {
         activityIds,
@@ -95,9 +86,27 @@ export function MergePreview({ preview, onBack, onMerged }: Props) {
       onMerged(result);
     } catch (e) {
       setError(asApiError(e));
-    } finally {
-      setMerging(false);
+      setPhase("idle");
     }
+  }
+
+  async function downloadOriginals() {
+    const res = await fetchWithCsrf("/api/originals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ activityIds }),
+    });
+    if (!res.ok) throw toApiError(await res.json().catch(() => ({})));
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `garmin-originals-${activityIds.join("-")}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   return (
@@ -258,30 +267,22 @@ export function MergePreview({ preview, onBack, onMerged }: Props) {
           <ol className="mt-6 space-y-4">
             <Step
               index={1}
-              state={downloaded ? "done" : "current"}
-              title="Save the originals to your machine"
-              body="A zip of the untouched .fit files. This is the only backup — nothing is kept on the server."
-            >
-              <Button
-                variant={downloaded ? "secondary" : "primary"}
-                onClick={downloadOriginals}
-                busy={downloading}
-              >
-                {downloaded ? "Download again" : "Download originals (.zip)"}
-              </Button>
-            </Step>
+              state={stepState(phase, "saving")}
+              title="Your originals are saved to this device"
+              body="A zip of the untouched .fit files downloads first. It is the only backup — nothing is kept on the server."
+            />
 
             <Step
               index={2}
-              state={downloaded ? "current" : "pending"}
-              title={`Delete the ${preview.sources.length} originals from Garmin`}
+              state={stepState(phase, "merging")}
+              title={`The ${preview.sources.length} originals are deleted from Garmin`}
               body="Garmin rejects an upload that overlaps an existing activity, so the originals go first. Garmin also keeps deleted activities for ~30 days."
             />
 
             <Step
               index={3}
-              state={downloaded ? "current" : "pending"}
-              title="Upload the merged activity"
+              state={stepState(phase, "merging")}
+              title="The merged activity is uploaded"
               body={`One ${formatDistance(preview.merged.streams.totals.distance)} activity with ${preview.merged.recordCount.toLocaleString()} track points.`}
             />
           </ol>
@@ -292,13 +293,18 @@ export function MergePreview({ preview, onBack, onMerged }: Props) {
             </div>
           )}
 
-          <div className="mt-6 flex flex-wrap items-center gap-4 border-t border-line pt-5">
-            <Button variant="danger" onClick={runMerge} disabled={!downloaded} busy={merging}>
-              {merging ? "Merging" : "Delete originals & upload merged"}
-            </Button>
-            {!downloaded && (
-              <p className="text-xs text-ink-3">Download the originals first — step 1.</p>
-            )}
+          <div className="mt-6 border-t border-line pt-5">
+            <SlideToConfirm
+              label="Slide to merge"
+              confirmedLabel="Merging"
+              busyLabel={phase === "saving" ? "Saving your originals" : "Deleting and uploading"}
+              busy={running}
+              onConfirm={confirmAndMerge}
+            />
+            <p className="mt-3 text-xs text-ink-3">
+              This deletes {preview.sources.length} activities from Garmin and cannot be undone
+              from here. Keep the zip that downloads.
+            </p>
           </div>
         </Card>
       </section>

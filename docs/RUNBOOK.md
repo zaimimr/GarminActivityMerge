@@ -32,6 +32,19 @@ outbound HTTPS to `sso.garmin.com`, `connectapi.garmin.com` and
 If only the S3 lookup fails, set `GARMIN_CONSUMER_KEY` and
 `GARMIN_CONSUMER_SECRET` and the app stops calling it.
 
+## "Could not download the original recording" (406)
+
+Garmin's download service negotiates content strictly. `downloadOriginalFit`
+asks with `Accept: */*` and retries once with the browser user agent, because a
+narrow `Accept` (or the mobile UA alone) gets a 406 instead of the file. If 406
+comes back after both attempts, Garmin has changed what the download service
+accepts — compare the headers against
+[garth](https://github.com/matin/garth)'s `download()` and adjust
+`src/lib/garmin/client.ts`.
+
+Nothing is deleted when this fires: it happens during the preview, before any
+destructive step.
+
 ## A user's merge failed after the originals were deleted
 
 This is the one genuinely bad case. The merge deletes first because Garmin

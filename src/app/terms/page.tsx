@@ -40,8 +40,8 @@ export default function Terms() {
             <p className="mt-2">Two safety nets exist, and both are yours to use:</p>
             <ul className="mt-2 list-disc space-y-1.5 pl-5">
               <li>
-                The zip of original FIT files you download before approving. Re-import them at
-                Garmin Connect → Import Data.
+                The zip of original FIT files that downloads to your machine when you confirm,
+                before anything is deleted. Re-import them at Garmin Connect → Import Data.
               </li>
               <li>
                 Garmin&apos;s own Settings → Account → Recover Deleted Activities, which keeps

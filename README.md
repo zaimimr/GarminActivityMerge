@@ -5,8 +5,8 @@ saved a single run as two activities — auto-pause hang, accidental stop/start,
 battery die, multisport mis-detection.
 
 Sign in → pick the recordings → **see the merged activity before you commit to
-it** → download the originals → the originals are deleted and the merged
-activity is uploaded.
+it** → slide to confirm. Confirming saves the originals to your machine, then
+deletes them from Garmin and uploads the merged activity.
 
 ## What makes it safe
 
@@ -18,10 +18,12 @@ kept server-side.
   hours. Credentials go to Garmin and are never written down.
 - **Preview before commit** — the preview runs the *real* merge in memory and
   charts the result. What you approve is byte-for-byte what gets uploaded.
-- **Your backup, on your machine** — before anything is deleted you download a
-  zip of the untouched original FIT files. That is the only copy that survives,
-  by design. Garmin also keeps deleted activities for ~30 days under
+- **Your backup, on your machine** — confirming downloads a zip of the untouched
+  original FIT files before anything is deleted. That is the only copy that
+  survives, by design. Garmin also keeps deleted activities for ~30 days under
   Settings → Account → Recover Deleted Activities.
+- **One deliberate action** — the destructive step is a slide-to-confirm, not a
+  button a stray click can trigger.
 
 ## Stack
 

@@ -1,6 +1,6 @@
 import AdmZip from "adm-zip";
 import { AppError } from "@/lib/errors";
-import { networkError, USER_AGENT_MOBILE } from "./http";
+import { networkError, USER_AGENT_BROWSER, USER_AGENT_MOBILE } from "./http";
 import { refreshAccessToken } from "./auth";
 import type { GarminActivity, GarminSession } from "./types";
 
@@ -46,7 +46,7 @@ export class GarminClient {
     const target = path.startsWith("http") ? path : `${API}${path}`;
     const headers = new Headers(init.headers ?? {});
     headers.set("Authorization", `Bearer ${await this.bearer()}`);
-    headers.set("User-Agent", USER_AGENT_MOBILE);
+    if (!headers.has("User-Agent")) headers.set("User-Agent", USER_AGENT_MOBILE);
     headers.set("di-backend", "connectapi.garmin.com");
     if (init.accept) headers.set("Accept", init.accept);
 
@@ -101,9 +101,16 @@ export class GarminClient {
 
   /** Original recording as uploaded by the watch, unwrapped from Garmin's zip. */
   async downloadOriginalFit(activityId: number): Promise<Buffer> {
-    const res = await this.request(`/download-service/files/activity/${activityId}`, {
-      accept: "application/octet-stream",
-    });
+    const path = `/download-service/files/activity/${activityId}`;
+    // Garmin's download service negotiates strictly: a narrow Accept (or the
+    // mobile user agent) gets a 406 rather than the file.
+    let res = await this.request(path, { accept: "*/*" });
+    if (res.status === 406) {
+      res = await this.request(path, {
+        accept: "*/*",
+        headers: { "User-Agent": USER_AGENT_BROWSER },
+      });
+    }
     if (res.status === 404) {
       throw new AppError({
         code: "ACTIVITY_NOT_FOUND",
@@ -118,6 +125,10 @@ export class GarminClient {
         code: "INTERNAL",
         title: "Could not download the original recording.",
         message: `download-service returned ${res.status} for ${activityId}`,
+        hint:
+          res.status === 406
+            ? "Garmin refused the download request itself, which usually means they changed what headers the download service accepts."
+            : "Nothing was changed on Garmin. Try again in a moment.",
         status: 502,
       });
     }
