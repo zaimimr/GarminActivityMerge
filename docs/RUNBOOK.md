@@ -59,6 +59,18 @@ Note the deliberate asymmetry: a network or auth failure while checking makes
 `activityExists` return true, so a flaky check never tells a user their activity
 is gone when it isn't.
 
+## "The merge started before my download finished"
+
+It can't any more, but here is the shape of it. `<a download>` returns as soon
+as click() is called, while the browser may still be asking the user to approve
+the download — so the delete could begin with no file saved.
+
+Browsers with the File System Access API await the write and continue straight
+through. Everywhere else the flow halts in the `confirming-save` phase and shows
+a gate ("did the zip download?") with merge / re-download / cancel. `/api/merge`
+is not called until the user confirms. If someone reports the old behaviour,
+check that gate still renders for their browser.
+
 ## A user's merge failed after the originals were deleted
 
 This is the one genuinely bad case. The merge deletes first because Garmin

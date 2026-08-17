@@ -31,8 +31,21 @@ export function SlideToConfirm({
   const trackRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
   const [dragging, setDragging] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [progress, setProgressState] = useState(0);
   const [committed, setCommitted] = useState(false);
+  // Mirrors of the state, so the pointer handlers can branch on the current
+  // value without doing it inside a setState updater. Updaters must stay pure:
+  // React invokes them twice in development, which fired the whole merge flow
+  // twice when commit() lived in one.
+  const progressRef = useRef(0);
+  const committedRef = useRef(false);
+
+  const setProgress = useCallback((next: number | ((p: number) => number)) => {
+    const value = typeof next === "function" ? next(progressRef.current) : next;
+    const clamped = Math.min(1, Math.max(0, value));
+    progressRef.current = clamped;
+    setProgressState(clamped);
+  }, []);
   // Positions are expressed in CSS so the track never has to be measured during
   // render; the pixel travel is only needed to translate pointer coordinates.
   const offset = `calc(4px + ${progress} * (100% - ${KNOB + 8}px))`;
@@ -40,10 +53,12 @@ export function SlideToConfirm({
   const locked = disabled || busy || committed;
 
   const commit = useCallback(() => {
+    if (committedRef.current) return;
+    committedRef.current = true;
     setCommitted(true);
     setProgress(1);
     onConfirm();
-  }, [onConfirm]);
+  }, [onConfirm, setProgress]);
 
   const travel = useCallback((): number => {
     const track = trackRef.current;
@@ -57,9 +72,9 @@ export function SlideToConfirm({
       if (!track) return;
       const rect = track.getBoundingClientRect();
       const x = clientX - rect.left - 4 - KNOB / 2;
-      setProgress(Math.min(1, Math.max(0, x / travel())));
+      setProgress(x / travel());
     },
-    [travel]
+    [travel, setProgress]
   );
 
   useEffect(() => {
@@ -74,13 +89,8 @@ export function SlideToConfirm({
       if (!draggingRef.current) return;
       draggingRef.current = false;
       setDragging(false);
-      setProgress((p) => {
-        if (p >= COMMIT_AT) {
-          commit();
-          return 1;
-        }
-        return 0;
-      });
+      if (progressRef.current >= COMMIT_AT) commit();
+      else setProgress(0);
     }
 
     window.addEventListener("pointermove", onMove, { passive: false });
@@ -91,7 +101,7 @@ export function SlideToConfirm({
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
     };
-  }, [locked, moveTo, commit]);
+  }, [locked, moveTo, commit, setProgress]);
 
   function onKeyDown(e: React.KeyboardEvent) {
     if (locked) return;

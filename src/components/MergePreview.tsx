@@ -27,11 +27,12 @@ import {
 import type { StreamPoint, Totals } from "@/lib/fit-streams";
 import { canConfirmSave, pickSaveTarget, saveBlob } from "@/lib/save-file";
 
-type Phase = "idle" | "saving" | "merging";
+type Phase = "idle" | "saving" | "confirming-save" | "merging";
 
 /** A step is done once the flow has moved past the phase that performs it. */
 function stepState(phase: Phase, runsDuring: Phase): "pending" | "current" | "done" {
   if (phase === "idle") return "pending";
+  if (phase === "confirming-save") return runsDuring === "saving" ? "current" : "pending";
   if (phase === runsDuring) return "current";
   return runsDuring === "saving" ? "done" : "pending";
 }
@@ -59,6 +60,9 @@ export function MergePreview({ preview, onBack, onMerged }: Props) {
   const confirmableSave = useSyncExternalStore(noopSubscribe, canConfirmSave, returnFalse);
   const [error, setError] = useState<ApiError | null>(null);
   const running = phase === "saving" || phase === "merging";
+  // The slider stays committed while we wait for the user to confirm the save,
+  // so it can't be dragged a second time mid-flow.
+  const sliderBusy = running || phase === "confirming-save";
 
   const activityIds = preview.sources.map((s) => s.activityId);
   const segments = useMemo(() => buildSegments(preview), [preview]);
@@ -108,6 +112,22 @@ export function MergePreview({ preview, onBack, onMerged }: Props) {
       return;
     }
 
+    /*
+     * Without the File System Access API the download is fire-and-forget: the
+     * browser may still be asking the user to approve it. Deleting while that
+     * prompt is open is how someone ends up with no originals and no zip, so
+     * stop here and let them tell us the file arrived.
+     */
+    if (!originals.confirmed) {
+      setPhase("confirming-save");
+      return;
+    }
+
+    await runMerge(originals);
+  }
+
+  async function runMerge(originals: SavedOriginals) {
+    setError(null);
     setPhase("merging");
     try {
       const result = await postJson<MergeResponse>("/api/merge", {
@@ -346,18 +366,59 @@ export function MergePreview({ preview, onBack, onMerged }: Props) {
             </div>
           )}
 
+          {phase === "confirming-save" && saved && (
+            <div className="mt-5 rounded-xl border border-[#4a3c15] bg-surface-1 p-4">
+              <div className="flex gap-3">
+                <span aria-hidden className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-warning" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-ink">
+                    Waiting — did the zip download?
+                  </p>
+                  <p className="mt-1 text-sm text-ink-2">
+                    Your browser may still be asking you to approve the download. Nothing has been
+                    deleted from Garmin yet, and nothing will be until you confirm you have the
+                    file. Check your downloads for{" "}
+                    <span className="font-mono text-xs text-ink">{saved.filename}</span>.
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <Button onClick={() => runMerge(saved)}>I have the zip — merge now</Button>
+                    <Button variant="secondary" onClick={saveAgain}>
+                      Download it again
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setPhase("idle");
+                        setAttempt((n) => n + 1);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="mt-6 border-t border-line pt-5">
             <SlideToConfirm
               key={attempt}
               label="Slide to merge"
               confirmedLabel="Merging"
-              busyLabel={phase === "saving" ? "Saving your originals" : "Deleting and uploading"}
-              busy={running}
+              busyLabel={
+                phase === "saving"
+                  ? "Saving your originals"
+                  : phase === "confirming-save"
+                    ? "Waiting for your download"
+                    : "Deleting and uploading"
+              }
+              busy={sliderBusy}
               onConfirm={confirmAndMerge}
             />
             <p className="mt-3 text-xs text-ink-3">
               This deletes {preview.sources.length} activities from Garmin and cannot be undone
               from here. Keep the zip that downloads.
+              {!confirmableSave && " Your originals download first, and you confirm you have them before anything is deleted."}
             </p>
           </div>
         </Card>
