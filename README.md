@@ -25,6 +25,18 @@ kept server-side.
 - **One deliberate action** — the destructive step is a slide-to-confirm, not a
   button a stray click can trigger.
 
+## The one rule about time
+
+**The merged activity always follows real-world time.** Timestamps are copied
+through exactly as recorded. The gap between two recordings is never closed by
+shifting the second activity earlier, never compressed, and never filled with
+invented samples — it is written into the file as a **pause**, which is how a
+watch records one.
+
+So a merge of a 1h ride, an hour off the bike, and a 1h30 ride produces an
+activity with 3h30 elapsed and 2h30 moving. That is what happened. Locked in by
+tests in `src/lib/fit-merge.test.ts`; don't add an option to work around it.
+
 ## Stack
 
 - Next.js 16 (App Router) + TypeScript + Tailwind v4
@@ -57,7 +69,8 @@ Open <http://localhost:3000>.
    source segment is bracketed by its own timer start / stop_all event pair and
    gets its own lap. Without this the gap counts as moving time and every
    average is wrong — an hour of standing around between two 1h rides would drag
-   the reported average speed down by a third.
+   the reported average speed down by a third. Timestamps themselves are never
+   altered (see "The one rule about time").
 5. Emits a single output FIT: `file_id`, `file_creator`, `device_info`, then per
    segment (start event, records, stop event, lap), then one session and an
    activity record. `totalElapsedTime` spans the gaps, `totalTimerTime` doesn't,

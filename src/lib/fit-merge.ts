@@ -95,10 +95,15 @@ function tryWrite(encoder: Encoder, mesg: AnyMesg, label: string): void {
   }
 }
 
+/*
+ * Design rule: the merged activity always tells the truth about when things
+ * happened. Record timestamps are copied through untouched — never shifted to
+ * dodge duplicate detection, never compressed to close a gap, and no samples are
+ * invented to fill one. A gap becomes a pause (see the timer events below), so
+ * elapsed time reflects real-world time while moving time stays honest.
+ */
 export type MergeOptions = {
   name?: string;
-  /** Shift all timestamps in the merged FIT by this many seconds to avoid platform-side duplicate detection. */
-  timestampShiftSeconds?: number;
   /**
    * Per-source activity metric overrides, in the same order as `files`. Used when the raw FIT
    * records don't carry distance/speed/etc. (e.g. indoor activities where Garmin computes those
@@ -151,14 +156,6 @@ function mergeFitFilesInternal(files: (Buffer | ArrayBuffer)[], opts: MergeOptio
   decoded.sort((a, b) => tsOf(a.records[0]) - tsOf(b.records[0]));
 
   const base = decoded[0];
-  const shiftMs = (opts.timestampShiftSeconds ?? 0) * 1000;
-  const shiftTs = (d: Date): Date => (shiftMs === 0 ? d : new Date(d.getTime() + shiftMs));
-  const shiftMesgTs = (m: AnyMesg): AnyMesg => {
-    if (shiftMs === 0) return m;
-    const t = m.timestamp;
-    if (t instanceof Date) return { ...m, timestamp: shiftTs(t) };
-    return m;
-  };
 
   const allRecords: Array<{ mesg: AnyMesg; source: number }> = [];
   let distanceOffset = 0;
@@ -170,7 +167,7 @@ function mergeFitFilesInternal(files: (Buffer | ArrayBuffer)[], opts: MergeOptio
     for (const r of file.records) {
       const rawD = (r.distance as number | undefined) ?? 0;
       const adjustedD = rawD - firstD + distanceOffset;
-      allRecords.push({ mesg: shiftMesgTs({ ...r, distance: adjustedD }), source: i });
+      allRecords.push({ mesg: { ...r, distance: adjustedD }, source: i });
       lastRecordDistance = adjustedD;
     }
     distanceOffset = lastRecordDistance;

@@ -140,6 +140,28 @@ describe("gap handling", () => {
     expect(laps[1].totalDistance).toBeCloseTo(599 * 3, 0);
   });
 
+  it("copies every real-world timestamp through untouched", () => {
+    // The merged file must never shift or compress time: the gap stays a gap,
+    // and each record keeps the second it was actually recorded in.
+    const aStart = T0;
+    const bStart = T0 + 4200_000;
+    const a = buildSyntheticFit({ startMs: aStart, durationSec: 300 });
+    const b = buildSyntheticFit({ startMs: bStart, durationSec: 300 });
+
+    const merged = mergeFitFilesWithMeta([a, b]);
+    const records = (decode(merged.buffer) as unknown as {
+      messages: { recordMesgs?: Array<{ timestamp?: Date }> };
+    }).messages.recordMesgs ?? [];
+
+    const expected = [
+      ...Array.from({ length: 300 }, (_, i) => aStart + i * 1000),
+      ...Array.from({ length: 300 }, (_, i) => bStart + i * 1000),
+    ];
+    expect(records.map((r) => r.timestamp!.getTime())).toEqual(expected);
+    expect(merged.startTime.getTime()).toBe(aStart);
+    expect(merged.endTime.getTime()).toBe(bStart + 299_000);
+  });
+
   it("keeps timer time equal to elapsed when the recordings are contiguous", () => {
     const a = buildSyntheticFit({ startMs: T0, durationSec: 300 });
     const b = buildSyntheticFit({ startMs: T0 + 300_000, durationSec: 300 });
