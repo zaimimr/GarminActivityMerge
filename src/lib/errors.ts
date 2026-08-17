@@ -6,6 +6,7 @@ export type ErrorCode =
   | "MFA_INVALID"
   | "LOGIN_FLOW_CHANGED"
   | "ACTIVITY_NOT_FOUND"
+  | "ACTIVITY_GONE"
   | "ACTIVITY_NOT_FIT"
   | "MERGE_FAILED"
   | "DEDUP_REJECTED"

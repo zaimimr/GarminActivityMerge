@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { SignIn } from "@/components/SignIn";
 import { ActivityPicker } from "@/components/ActivityPicker";
-import { MergePreview } from "@/components/MergePreview";
+import { MergePreview, type SavedOriginals } from "@/components/MergePreview";
 import { Button, Callout, Card, ErrorPanel } from "@/components/ui";
 import {
   asApiError,
@@ -27,6 +27,7 @@ export default function Home() {
   const [selected, setSelected] = useState<number[]>([]);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [result, setResult] = useState<MergeResponse | null>(null);
+  const [savedOriginals, setSavedOriginals] = useState<SavedOriginals | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [loadingActivities, setLoadingActivities] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -85,6 +86,7 @@ export default function Home() {
     setSelected([]);
     setPreview(null);
     setResult(null);
+    setSavedOriginals(null);
     setStage("signin");
   }
 
@@ -107,8 +109,9 @@ export default function Home() {
     }
   }
 
-  function onMerged(mergeResult: MergeResponse) {
+  function onMerged(mergeResult: MergeResponse, originals: SavedOriginals | null) {
     setResult(mergeResult);
+    setSavedOriginals(originals);
     setStage("done");
     setSelected([]);
     setPreview(null);
@@ -193,6 +196,7 @@ export default function Home() {
         {stage === "done" && result && (
           <Result
             result={result}
+            originals={savedOriginals}
             onDone={() => {
               setResult(null);
               setStage("select");
@@ -218,7 +222,15 @@ export default function Home() {
   );
 }
 
-function Result({ result, onDone }: { result: MergeResponse; onDone: () => void }) {
+function Result({
+  result,
+  originals,
+  onDone,
+}: {
+  result: MergeResponse;
+  originals: SavedOriginals | null;
+  onDone: () => void;
+}) {
   return (
     <div className="rise mx-auto max-w-2xl space-y-5">
       <Callout
@@ -249,7 +261,31 @@ function Result({ result, onDone }: { result: MergeResponse; onDone: () => void 
         </ol>
       </Card>
 
+      {originals && !originals.confirmed && (
+        <Callout tone="info" title="Keep your originals safe">
+          The zip of your original recordings was sent to your downloads. If it did not arrive,
+          save it again now — this is the only copy, and it is gone when you close the tab.
+        </Callout>
+      )}
+
       <div className="flex flex-wrap gap-3">
+        {originals && (
+          <Button
+            variant="secondary"
+            onClick={() => {
+              const url = URL.createObjectURL(originals.blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = originals.filename;
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              setTimeout(() => URL.revokeObjectURL(url), 60_000);
+            }}
+          >
+            Save originals zip again
+          </Button>
+        )}
         {result.activityId && (
           <a
             href={`https://connect.garmin.com/modern/activity/${result.activityId}`}

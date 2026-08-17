@@ -31,8 +31,15 @@ export async function POST(req: NextRequest) {
     const client = await requireClient();
     const zip = new AdmZip();
 
-    for (const activityId of parsed.data.activityIds) {
-      const fit = await client.downloadOriginalFit(activityId);
+    // In parallel: this runs while the user waits, before anything is deleted,
+    // so serial round trips to Garmin are pure added risk.
+    const fits = await Promise.all(
+      parsed.data.activityIds.map(async (activityId) => ({
+        activityId,
+        fit: await client.downloadOriginalFit(activityId),
+      }))
+    );
+    for (const { activityId, fit } of fits) {
       zip.addFile(`activity_${activityId}.fit`, fit);
     }
     zip.addFile(
@@ -62,6 +69,8 @@ export async function POST(req: NextRequest) {
       headers: {
         "Content-Type": "application/zip",
         "Content-Length": String(buffer.length),
+        // The client refuses to start the merge unless this matches what it asked for.
+        "X-Original-Count": String(fits.length),
         "Content-Disposition": `attachment; filename="garmin-originals-${parsed.data.activityIds.join("-")}.zip"`,
       },
     });

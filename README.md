@@ -18,10 +18,13 @@ kept server-side.
   hours. Credentials go to Garmin and are never written down.
 - **Preview before commit** — the preview runs the *real* merge in memory and
   charts the result. What you approve is byte-for-byte what gets uploaded.
-- **Your backup, on your machine** — confirming downloads a zip of the untouched
-  original FIT files before anything is deleted. That is the only copy that
-  survives, by design. Garmin also keeps deleted activities for ~30 days under
-  Settings → Account → Recover Deleted Activities.
+- **Your backup, on your machine** — confirming saves a zip of the untouched
+  original FIT files, and the merge does not start until that save has finished.
+  Where the browser supports the File System Access API you pick the destination
+  and the write is awaited, so "saved" is a fact rather than a hope; elsewhere the
+  zip stays in memory so you can save it again from the result screen. It is the
+  only copy that survives, by design. Garmin also keeps deleted activities for
+  ~30 days under Settings → Account → Recover Deleted Activities.
 - **One deliberate action** — the destructive step is a slide-to-confirm, not a
   button a stray click can trigger.
 

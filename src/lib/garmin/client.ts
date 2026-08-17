@@ -112,13 +112,24 @@ export class GarminClient {
       });
     }
     if (res.status === 404) {
-      throw new AppError({
-        code: "ACTIVITY_NOT_FOUND",
-        title: `Garmin has no original file for activity ${activityId}.`,
-        message: `download-service returned 404 for ${activityId}`,
-        hint: "Manually entered activities have no FIT recording to merge.",
-        status: 404,
-      });
+      // A 404 here means either "this activity has no FIT" or "this activity is
+      // gone". Those need very different advice, so ask whether it still exists.
+      const stillExists = await this.activityExists(activityId);
+      throw stillExists
+        ? new AppError({
+            code: "ACTIVITY_NOT_FIT",
+            title: `Activity ${activityId} has no original recording.`,
+            message: `download-service returned 404 for ${activityId}, but the activity exists`,
+            hint: "Manually entered activities carry no FIT file, so there is nothing to merge.",
+            status: 422,
+          })
+        : new AppError({
+            code: "ACTIVITY_GONE",
+            title: `Activity ${activityId} no longer exists on Garmin.`,
+            message: `download-service and activity-service both returned 404 for ${activityId}`,
+            hint: "It was probably deleted — by an earlier merge, or in Garmin Connect. Recover it at Garmin Connect -> Settings -> Account -> Recover Deleted Activities (kept ~30 days), or re-import it from a downloaded originals zip.",
+            status: 410,
+          });
     }
     if (!res.ok) {
       throw new AppError({
@@ -145,6 +156,19 @@ export class GarminClient {
       });
     }
     return fit;
+  }
+
+  /** Distinguishes a deleted activity from one that merely has no FIT file. */
+  async activityExists(activityId: number): Promise<boolean> {
+    try {
+      const res = await this.request(`/activity-service/activity/${activityId}`, {
+        accept: "application/json",
+      });
+      return res.ok;
+    } catch {
+      // An auth or network failure tells us nothing either way; don't claim it's gone.
+      return true;
+    }
   }
 
   async uploadFit(buf: Buffer, filename = "merged.fit"): Promise<UploadOutcome> {

@@ -45,6 +45,20 @@ accepts — compare the headers against
 Nothing is deleted when this fires: it happens during the preview, before any
 destructive step.
 
+## "Activity NNN no longer exists on Garmin" (ACTIVITY_GONE)
+
+The activity is deleted, not FIT-less. `downloadOriginalFit` gets a 404 from
+download-service and then asks activity-service whether the activity still
+exists; only when that also 404s does it report ACTIVITY_GONE.
+
+Usual cause: a previous merge got as far as deleting, then failed. Recovery is
+Garmin Connect -> Settings -> Account -> Recover Deleted Activities (~30 days),
+or re-importing the originals zip from that earlier run.
+
+Note the deliberate asymmetry: a network or auth failure while checking makes
+`activityExists` return true, so a flaky check never tells a user their activity
+is gone when it isn't.
+
 ## A user's merge failed after the originals were deleted
 
 This is the one genuinely bad case. The merge deletes first because Garmin

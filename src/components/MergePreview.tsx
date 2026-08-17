@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { Chart, Legend, type ChartBand, type ChartPoint, type ChartSegment } from "./Chart";
 import { TrackMap, type Track } from "./TrackMap";
 import { Button, Callout, Card, ErrorPanel, Field, inputClass } from "./ui";
@@ -25,6 +25,7 @@ import {
   type PreviewSource,
 } from "@/lib/client-types";
 import type { StreamPoint, Totals } from "@/lib/fit-streams";
+import { canConfirmSave, pickSaveTarget, saveBlob } from "@/lib/save-file";
 
 type Phase = "idle" | "saving" | "merging";
 
@@ -35,15 +36,27 @@ function stepState(phase: Phase, runsDuring: Phase): "pending" | "current" | "do
   return runsDuring === "saving" ? "done" : "pending";
 }
 
+export type SavedOriginals = { blob: Blob; filename: string; confirmed: boolean };
+
+const noopSubscribe = () => () => {};
+const returnFalse = () => false;
+
 type Props = {
   preview: PreviewResponse;
   onBack: () => void;
-  onMerged: (result: MergeResponse) => void;
+  onMerged: (result: MergeResponse, originals: SavedOriginals | null) => void;
 };
 
 export function MergePreview({ preview, onBack, onMerged }: Props) {
   const [name, setName] = useState(preview.suggestedName);
   const [phase, setPhase] = useState<Phase>("idle");
+  const [saved, setSaved] = useState<SavedOriginals | null>(null);
+  // Bumped on every failed attempt to remount the slider, so a failure leaves a
+  // fresh control the user can drag again rather than one stuck on "Merging".
+  const [attempt, setAttempt] = useState(0);
+  // A browser capability, read the way React wants browser state read: false on
+  // the server so hydration matches, then the real answer on the client.
+  const confirmableSave = useSyncExternalStore(noopSubscribe, canConfirmSave, returnFalse);
   const [error, setError] = useState<ApiError | null>(null);
   const running = phase === "saving" || phase === "merging";
 
@@ -64,15 +77,34 @@ export function MergePreview({ preview, onBack, onMerged }: Props) {
     }))
     .filter((t) => t.points.length > 1);
 
-  /** Saves the originals to disk, then merges. Confirmation gates both. */
+  /**
+   * One confirmation drives the whole thing: pick where the originals go, save
+   * them, and only then let the merge delete anything.
+   */
   async function confirmAndMerge() {
     setError(null);
+    const filename = `garmin-originals-${activityIds.join("-")}.zip`;
+
+    // The picker has to be the first thing after the gesture, or the browser
+    // will have dropped transient activation and refuse to open it.
+    const target = await pickSaveTarget(filename);
+    if (target.aborted) {
+      setPhase("idle");
+      setAttempt((n) => n + 1);
+      return;
+    }
+
     setPhase("saving");
+    let originals: SavedOriginals;
     try {
-      await downloadOriginals();
+      const blob = await fetchOriginals();
+      const { confirmed } = await saveBlob(blob, filename, target.handle);
+      originals = { blob, filename, confirmed };
+      setSaved(originals);
     } catch (e) {
       setError(asApiError(e));
       setPhase("idle");
+      setAttempt((n) => n + 1);
       return;
     }
 
@@ -83,14 +115,16 @@ export function MergePreview({ preview, onBack, onMerged }: Props) {
         name: name.trim() || undefined,
         originalsDownloaded: true,
       });
-      onMerged(result);
+      onMerged(result, originals);
     } catch (e) {
       setError(asApiError(e));
       setPhase("idle");
+      setAttempt((n) => n + 1);
     }
   }
 
-  async function downloadOriginals() {
+  /** Returns the zip only once every requested original is inside it. */
+  async function fetchOriginals(): Promise<Blob> {
     const res = await fetchWithCsrf("/api/originals", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -98,15 +132,22 @@ export function MergePreview({ preview, onBack, onMerged }: Props) {
     });
     if (!res.ok) throw toApiError(await res.json().catch(() => ({})));
 
+    const count = Number(res.headers.get("X-Original-Count"));
     const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `garmin-originals-${activityIds.join("-")}.zip`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    if (blob.size === 0 || count !== activityIds.length) {
+      throw toApiError({
+        title: "The originals download came back incomplete.",
+        error: `Expected ${activityIds.length} originals, got ${count || 0} (${blob.size} bytes)`,
+        hint: "Nothing has been deleted. Try again.",
+        code: "VALIDATION",
+      });
+    }
+    return blob;
+  }
+
+  async function saveAgain() {
+    if (!saved) return;
+    await saveBlob(saved.blob, saved.filename, null);
   }
 
   return (
@@ -272,7 +313,11 @@ export function MergePreview({ preview, onBack, onMerged }: Props) {
               index={1}
               state={stepState(phase, "saving")}
               title="Your originals are saved to this device"
-              body="A zip of the untouched .fit files downloads first. It is the only backup — nothing is kept on the server."
+              body={
+                confirmableSave
+                  ? "You choose where the zip of untouched .fit files goes, and nothing is deleted until it is written to disk. It is the only backup — nothing is kept on the server."
+                  : "A zip of the untouched .fit files is saved first, and nothing is deleted until your browser has it. It is the only backup — nothing is kept on the server."
+              }
             />
 
             <Step
@@ -291,13 +336,19 @@ export function MergePreview({ preview, onBack, onMerged }: Props) {
           </ol>
 
           {error && (
-            <div className="mt-5">
+            <div className="mt-5 space-y-3">
               <ErrorPanel error={error} onDismiss={() => setError(null)} />
+              {saved && (
+                <Button variant="secondary" onClick={saveAgain}>
+                  Save the originals zip again
+                </Button>
+              )}
             </div>
           )}
 
           <div className="mt-6 border-t border-line pt-5">
             <SlideToConfirm
+              key={attempt}
               label="Slide to merge"
               confirmedLabel="Merging"
               busyLabel={phase === "saving" ? "Saving your originals" : "Deleting and uploading"}
