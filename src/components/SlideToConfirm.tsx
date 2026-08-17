@@ -119,6 +119,7 @@ export function SlideToConfirm({
   return (
     <div
       ref={trackRef}
+      style={{ touchAction: "none", overscrollBehaviorX: "contain" }}
       className={`relative h-[52px] w-full max-w-sm overflow-hidden rounded-full border select-none ${
         disabled
           ? "border-line bg-surface-2 opacity-50"
@@ -152,11 +153,13 @@ export function SlideToConfirm({
         aria-valuenow={Math.round(progress * 100)}
         aria-valuetext={`${Math.round(progress * 100)}% — slide fully right to confirm`}
         aria-disabled={locked}
+        style={{ left: offset, touchAction: "none" }}
         onPointerDown={(e) => {
           if (locked) return;
+          e.preventDefault();
           draggingRef.current = true;
           setDragging(true);
-          (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+          e.currentTarget.setPointerCapture?.(e.pointerId);
           moveTo(e.clientX);
         }}
         onKeyDown={onKeyDown}
@@ -167,7 +170,6 @@ export function SlideToConfirm({
             ? "cursor-default bg-surface-3"
             : "cursor-grab bg-critical focus-visible:ring-2 focus-visible:ring-accent active:cursor-grabbing"
         }`}
-        style={{ left: offset }}
       >
         {committed || busy ? (
           <span aria-hidden className="text-white">

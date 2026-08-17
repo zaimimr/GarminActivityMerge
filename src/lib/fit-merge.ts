@@ -124,6 +124,12 @@ export type MergeResult = {
   endTime: Date;
   recordCount: number;
   totalDistance: number;
+  /** Wall-clock span, gaps included. */
+  totalElapsed: number;
+  /** Time the timer was actually running, gaps excluded. */
+  totalTimerTime: number;
+  /** One entry per source that contributed records, in chronological order. */
+  segments: Array<{ startTime: Date; endTime: Date; timerTime: number; distance: number }>;
 };
 
 export function mergeFitFilesWithMeta(
@@ -154,34 +160,47 @@ function mergeFitFilesInternal(files: (Buffer | ArrayBuffer)[], opts: MergeOptio
     return m;
   };
 
-  const allRecords: AnyMesg[] = [];
+  const allRecords: Array<{ mesg: AnyMesg; source: number }> = [];
   let distanceOffset = 0;
   let lastRecordDistance = 0;
-  for (const file of decoded) {
+  for (let i = 0; i < decoded.length; i++) {
+    const file = decoded[i];
     if (file.records.length === 0) continue;
     const firstD = (file.records[0]?.distance as number | undefined) ?? 0;
     for (const r of file.records) {
       const rawD = (r.distance as number | undefined) ?? 0;
       const adjustedD = rawD - firstD + distanceOffset;
-      allRecords.push(shiftMesgTs({ ...r, distance: adjustedD }));
+      allRecords.push({ mesg: shiftMesgTs({ ...r, distance: adjustedD }), source: i });
       lastRecordDistance = adjustedD;
     }
     distanceOffset = lastRecordDistance;
   }
-  allRecords.sort((a, b) => tsOf(a) - tsOf(b));
+  allRecords.sort((a, b) => tsOf(a.mesg) - tsOf(b.mesg));
 
-  const dedupedRecords: AnyMesg[] = [];
+  const deduped: Array<{ mesg: AnyMesg; source: number }> = [];
   let lastTs = -Infinity;
-  for (const r of allRecords) {
-    const t = tsOf(r);
+  for (const entry of allRecords) {
+    const t = tsOf(entry.mesg);
     if (t <= lastTs) continue;
-    dedupedRecords.push(r);
+    deduped.push(entry);
     lastTs = t;
   }
+  const dedupedRecords = deduped.map((e) => e.mesg);
+
+  /*
+   * One segment per source, so the stretch between them can be written as a
+   * pause. Without the stop/start pair around each segment Garmin counts the
+   * unrecorded gap as moving time and every pace/speed average comes out wrong.
+   */
+  const segments = buildSegments(deduped);
 
   const firstTs = dedupedRecords.length > 0 ? new Date(tsOf(dedupedRecords[0])) : new Date();
   const lastTs2 = dedupedRecords.length > 0 ? new Date(tsOf(dedupedRecords.at(-1)!)) : firstTs;
   const totalElapsed = (lastTs2.getTime() - firstTs.getTime()) / 1000;
+  const totalTimerTime = Math.min(
+    totalElapsed,
+    segments.reduce((sum, seg) => sum + seg.timerTime, 0)
+  );
 
   let totalDistance = 0;
   let totalCalories = 0;
@@ -215,7 +234,8 @@ function mergeFitFilesInternal(files: (Buffer | ArrayBuffer)[], opts: MergeOptio
   }
 
   let avgHr = avgHrCount > 0 ? Math.round(avgHrSum / avgHrCount) : undefined;
-  let avgSpeed = totalElapsed > 0 && totalDistance > 0 ? totalDistance / totalElapsed : undefined;
+  // Average speed is distance over *moving* time, never over the paused gaps.
+  let avgSpeed = totalTimerTime > 0 && totalDistance > 0 ? totalDistance / totalTimerTime : undefined;
 
   for (const file of decoded) {
     totalCalories += (file.session?.totalCalories as number | undefined) ?? 0;
@@ -227,7 +247,7 @@ function mergeFitFilesInternal(files: (Buffer | ArrayBuffer)[], opts: MergeOptio
     const overrideCalories = overrides.reduce((s, m) => s + (m.calories ?? 0), 0);
     if (totalDistance <= 0 && overrideDistance > 0) {
       totalDistance = overrideDistance;
-      avgSpeed = totalElapsed > 0 ? totalDistance / totalElapsed : avgSpeed;
+      avgSpeed = totalTimerTime > 0 ? totalDistance / totalTimerTime : avgSpeed;
     }
     if (totalCalories <= 0 && overrideCalories > 0) totalCalories = overrideCalories;
     if (!maxSpeed) {
@@ -286,43 +306,58 @@ function mergeFitFilesInternal(files: (Buffer | ArrayBuffer)[], opts: MergeOptio
     tryWrite(encoder, withNum(base.deviceInfos[i], MESG.DEVICE_INFO), `device_info[${i}]`);
   }
 
-  tryWrite(
-    encoder,
-    withNum({ timestamp: firstTs, event: 0, eventType: 0, eventGroup: 0 }, MESG.EVENT),
-    "event(start)"
-  );
+  /*
+   * Each segment gets its own timer start / stop_all pair and its own lap, so
+   * the merged file reads exactly like an activity that was paused: Garmin
+   * excludes the gaps from moving time, and the lap list still shows where each
+   * original recording began and ended.
+   */
+  let recordIndex = 0;
+  segments.forEach((segment, segIndex) => {
+    tryWrite(
+      encoder,
+      withNum(
+        { timestamp: segment.startTime, event: 0, eventType: 0, eventGroup: 0 },
+        MESG.EVENT
+      ),
+      `event(start)[${segIndex}]`
+    );
 
-  for (let i = 0; i < dedupedRecords.length; i++) {
-    tryWrite(encoder, withNum(dedupedRecords[i], MESG.RECORD), `record[${i}]`);
-  }
+    for (const record of segment.records) {
+      tryWrite(encoder, withNum(record, MESG.RECORD), `record[${recordIndex++}]`);
+    }
 
-  tryWrite(
-    encoder,
-    withNum({ timestamp: lastTs2, event: 0, eventType: 4, eventGroup: 0 }, MESG.EVENT),
-    "event(stop)"
-  );
+    tryWrite(
+      encoder,
+      withNum(
+        { timestamp: segment.endTime, event: 0, eventType: 4, eventGroup: 0 },
+        MESG.EVENT
+      ),
+      `event(stop)[${segIndex}]`
+    );
 
-  const lap: AnyMesg = {
-    timestamp: lastTs2,
-    startTime: firstTs,
-    totalElapsedTime: totalElapsed,
-    totalTimerTime: totalElapsed,
-    totalDistance,
-    totalCalories: totalCalories || undefined,
-    avgHeartRate: avgHr,
-    maxHeartRate: maxHr || undefined,
-    avgSpeed,
-    maxSpeed: maxSpeed || undefined,
-    totalAscent: Math.round(totalAscent) || undefined,
-    totalDescent: Math.round(totalDescent) || undefined,
-    sport,
-    subSport,
-    event: 9,
-    eventType: 1,
-    lapTrigger: 7,
-    messageIndex: 0,
-  };
-  tryWrite(encoder, withNum(lap, MESG.LAP), "lap");
+    const stats = summarize(segment.records);
+    const lap: AnyMesg = {
+      timestamp: segment.endTime,
+      startTime: segment.startTime,
+      totalElapsedTime: segment.timerTime,
+      totalTimerTime: segment.timerTime,
+      totalDistance: stats.distance,
+      avgHeartRate: stats.avgHr,
+      maxHeartRate: stats.maxHr || undefined,
+      avgSpeed: segment.timerTime > 0 && stats.distance > 0 ? stats.distance / segment.timerTime : undefined,
+      maxSpeed: stats.maxSpeed || undefined,
+      totalAscent: Math.round(stats.ascent) || undefined,
+      totalDescent: Math.round(stats.descent) || undefined,
+      sport,
+      subSport,
+      event: 9,
+      eventType: 1,
+      lapTrigger: segIndex === segments.length - 1 ? 7 : 0,
+      messageIndex: segIndex,
+    };
+    tryWrite(encoder, withNum(lap, MESG.LAP), `lap[${segIndex}]`);
+  });
 
   const session: AnyMesg = {
     timestamp: lastTs2,
@@ -330,7 +365,7 @@ function mergeFitFilesInternal(files: (Buffer | ArrayBuffer)[], opts: MergeOptio
     sport,
     subSport,
     totalElapsedTime: totalElapsed,
-    totalTimerTime: totalElapsed,
+    totalTimerTime,
     totalDistance,
     totalCalories: totalCalories || undefined,
     avgHeartRate: avgHr,
@@ -340,7 +375,7 @@ function mergeFitFilesInternal(files: (Buffer | ArrayBuffer)[], opts: MergeOptio
     totalAscent: Math.round(totalAscent) || undefined,
     totalDescent: Math.round(totalDescent) || undefined,
     firstLapIndex: 0,
-    numLaps: 1,
+    numLaps: segments.length,
     event: 8,
     eventType: 1,
     trigger: 0,
@@ -350,7 +385,7 @@ function mergeFitFilesInternal(files: (Buffer | ArrayBuffer)[], opts: MergeOptio
 
   const activity: AnyMesg = {
     timestamp: lastTs2,
-    totalTimerTime: totalElapsed,
+    totalTimerTime,
     numSessions: 1,
     type: 0,
     event: 26,
@@ -369,5 +404,100 @@ function mergeFitFilesInternal(files: (Buffer | ArrayBuffer)[], opts: MergeOptio
     endTime: lastTs2,
     recordCount: dedupedRecords.length,
     totalDistance,
+    totalElapsed,
+    totalTimerTime,
+    segments: segments.map((seg) => ({
+      startTime: seg.startTime,
+      endTime: seg.endTime,
+      timerTime: seg.timerTime,
+      distance: summarize(seg.records).distance,
+    })),
+  };
+}
+
+type Segment = {
+  records: AnyMesg[];
+  startTime: Date;
+  endTime: Date;
+  /** Seconds the timer ran for this segment. */
+  timerTime: number;
+};
+
+/** Groups deduplicated records back into one segment per source recording. */
+function buildSegments(entries: Array<{ mesg: AnyMesg; source: number }>): Segment[] {
+  const bySource = new Map<number, AnyMesg[]>();
+  for (const entry of entries) {
+    const list = bySource.get(entry.source);
+    if (list) list.push(entry.mesg);
+    else bySource.set(entry.source, [entry.mesg]);
+  }
+
+  return Array.from(bySource.values())
+    .filter((records) => records.length > 0)
+    .map((records) => {
+      const startTime = new Date(tsOf(records[0]));
+      const endTime = new Date(tsOf(records[records.length - 1]));
+      return {
+        records,
+        startTime,
+        endTime,
+        timerTime: (endTime.getTime() - startTime.getTime()) / 1000,
+      };
+    })
+    .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+}
+
+type SegmentStats = {
+  distance: number;
+  avgHr?: number;
+  maxHr: number;
+  maxSpeed: number;
+  ascent: number;
+  descent: number;
+};
+
+function summarize(records: AnyMesg[]): SegmentStats {
+  let firstDistance: number | null = null;
+  let lastDistance = 0;
+  let hrSum = 0;
+  let hrCount = 0;
+  let maxHr = 0;
+  let maxSpeed = 0;
+  let ascent = 0;
+  let descent = 0;
+  let lastAlt: number | null = null;
+
+  for (const r of records) {
+    const d = r.distance as number | undefined;
+    if (d != null) {
+      if (firstDistance == null) firstDistance = d;
+      lastDistance = d;
+    }
+    const hr = r.heartRate as number | undefined;
+    if (hr) {
+      hrSum += hr;
+      hrCount++;
+      if (hr > maxHr) maxHr = hr;
+    }
+    const sp = r.speed as number | undefined;
+    if (sp != null && sp > maxSpeed) maxSpeed = sp;
+    const alt = r.altitude as number | undefined;
+    if (alt != null) {
+      if (lastAlt != null) {
+        const diff = alt - lastAlt;
+        if (diff > 0) ascent += diff;
+        else descent -= diff;
+      }
+      lastAlt = alt;
+    }
+  }
+
+  return {
+    distance: firstDistance == null ? 0 : lastDistance - firstDistance,
+    avgHr: hrCount > 0 ? Math.round(hrSum / hrCount) : undefined,
+    maxHr,
+    maxSpeed,
+    ascent,
+    descent,
   };
 }

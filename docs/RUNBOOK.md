@@ -67,6 +67,14 @@ file's time range — usually a delete that silently didn't take, or the user
 merged the same pair twice. Have them check Connect for a leftover original and
 delete it, then re-run from the downloaded zip.
 
+## A merged activity shows the wrong average pace or speed
+
+Check `totalTimerTime` vs `totalElapsedTime` in the merged session. Timer time
+must exclude the gaps between source recordings: `fit-merge.ts` brackets each
+segment with timer start / stop_all events so Garmin reads the gap as a pause.
+If timer time equals elapsed time on an activity with a gap, that bracketing
+regressed — see the "gap handling" tests in `src/lib/fit-merge.test.ts`.
+
 ## A merge produced 0 km
 
 The source recordings carry no `distance` in their records — normal for

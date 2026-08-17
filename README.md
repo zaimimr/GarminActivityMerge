@@ -53,11 +53,17 @@ Open <http://localhost:3000>.
    keep the earliest sample of each second).
 3. Re-cumulates the `distance` field across file boundaries so totals stay
    monotonic.
-4. Emits a single output FIT containing `file_id`, `file_creator`,
-   `device_info`, a start event, all records, a stop event, one synthesized lap,
-   one synthesized session and an activity record. Totals are recomputed from
-   the merged record stream, falling back to Garmin's server-side numbers when
-   the raw records carry no distance (indoor workouts).
+4. Writes the unrecorded stretch between two recordings as a **pause**: each
+   source segment is bracketed by its own timer start / stop_all event pair and
+   gets its own lap. Without this the gap counts as moving time and every
+   average is wrong — an hour of standing around between two 1h rides would drag
+   the reported average speed down by a third.
+5. Emits a single output FIT: `file_id`, `file_creator`, `device_info`, then per
+   segment (start event, records, stop event, lap), then one session and an
+   activity record. `totalElapsedTime` spans the gaps, `totalTimerTime` doesn't,
+   and average speed is derived from timer time. Totals are recomputed from the
+   merged record stream, falling back to Garmin's server-side numbers when the
+   raw records carry no distance (indoor workouts).
 
 `src/lib/fit-streams.ts` decodes a FIT into chart-ready series (elevation, heart
 rate, pace, GPS track) plus totals, and measures the gap between consecutive

@@ -81,7 +81,12 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="flex min-h-full flex-col">
+      {/*
+        Deliberately not a flex column: as a column flex container, body sizes
+        the line's cross-axis to <main>'s max-content width, which lets a wide
+        chart or table stretch the whole page sideways on a phone.
+      */}
+      <body className="min-h-full w-full">
         {children}
         <Analytics />
       </body>

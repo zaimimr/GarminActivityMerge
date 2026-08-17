@@ -127,7 +127,7 @@ export function MergePreview({ preview, onBack, onMerged }: Props) {
       </div>
 
       {preview.gaps.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
           {preview.gaps.map((gap) => (
             <Callout
               key={`${gap.fromIndex}-${gap.toIndex}`}
@@ -164,7 +164,7 @@ export function MergePreview({ preview, onBack, onMerged }: Props) {
         <Legend
           items={[
             ...legendItems,
-            { label: "Bridged gap", color: "var(--color-ink-3)", dashed: true },
+            { label: "Paused — no data recorded", color: "var(--color-ink-3)", dashed: true },
           ]}
         />
 
@@ -174,10 +174,11 @@ export function MergePreview({ preview, onBack, onMerged }: Props) {
           segments={segments.elevation}
           bands={bands}
           area
+          connectGaps
           formatY={(v) => `${Math.round(v)}`}
           formatX={formatDuration}
         />
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-2">
           <Chart
             title="Heart rate"
             subtitle="bpm"
@@ -233,14 +234,16 @@ export function MergePreview({ preview, onBack, onMerged }: Props) {
           </table>
         </Card>
         <p className="mt-2 text-xs text-ink-3">
-          Elapsed time grows by the unrecorded gap — that stretch is now inside one activity.
-          Moving time and distance should stay close to the sum of the originals.
+          Elapsed time grows by the unrecorded gap, because that stretch now sits inside one
+          activity. Moving time does not: the gap is written into the file as a pause, so Garmin
+          keeps your averages honest. Moving time and distance should match the sum of the
+          originals.
         </p>
       </section>
 
       <section>
         <h3 className="mb-3 text-sm font-semibold text-ink">Each activity on its own</h3>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
           {preview.sources.map((s, i) => (
             <SourceCard key={s.activityId} source={s} index={i} />
           ))}
@@ -379,7 +382,7 @@ function SourceCard({ source, index }: { source: PreviewSource; index: number })
 
       <dl className="grid grid-cols-3 gap-4 px-5 py-4">
         <Metric label="Distance" value={formatDistance(source.streams.totals.distance)} />
-        <Metric label="Moving" value={formatDuration(source.streams.totals.movingTime)} />
+        <Metric label="Moving" value={formatDuration(source.streams.totals.timerTime)} />
         <Metric label="Ascent" value={formatElevation(source.streams.totals.ascent)} />
       </dl>
 
@@ -438,7 +441,7 @@ function TotalsRow({
         </span>
       </td>
       <td className={cell}>{formatDistance(totals.distance)}</td>
-      <td className={cell}>{formatDuration(totals.movingTime)}</td>
+      <td className={cell}>{formatDuration(totals.timerTime)}</td>
       <td className={cell}>{formatDuration(totals.elapsed)}</td>
       <td className={cell}>{totals.avgHr ? `${totals.avgHr}` : "–"}</td>
       <td className={cell}>{formatElevation(totals.ascent)}</td>
@@ -451,13 +454,14 @@ function sumTotals(sources: PreviewSource[]): Totals {
     (acc, s) => ({
       distance: acc.distance + s.streams.totals.distance,
       elapsed: acc.elapsed + s.streams.totals.elapsed,
+      timerTime: acc.timerTime + s.streams.totals.timerTime,
       movingTime: acc.movingTime + s.streams.totals.movingTime,
       ascent: acc.ascent + s.streams.totals.ascent,
       descent: acc.descent + s.streams.totals.descent,
       avgHr: weightedHr(sources),
       maxHr: Math.max(acc.maxHr ?? 0, s.streams.totals.maxHr ?? 0) || undefined,
     }),
-    { distance: 0, elapsed: 0, movingTime: 0, ascent: 0, descent: 0 }
+    { distance: 0, elapsed: 0, timerTime: 0, movingTime: 0, ascent: 0, descent: 0 }
   );
 }
 

@@ -30,6 +30,12 @@ type Props = {
   includeZero?: boolean;
   /** Drop the card frame when the chart already sits inside one. */
   bare?: boolean;
+  /**
+   * Draw a dashed line across gaps. Right for a continuous property of the
+   * terrain like elevation; wrong for heart rate or pace, where the athlete was
+   * paused and no value existed to interpolate.
+   */
+  connectGaps?: boolean;
 };
 
 const PAD = { top: 14, right: 18, bottom: 26, left: 56 };
@@ -46,8 +52,13 @@ export function Chart({
   height = 190,
   includeZero = false,
   bare = false,
+  connectGaps = false,
 }: Props) {
-  const frame = bare ? "" : "rounded-xl border border-line bg-surface-1 p-5";
+  // min-w-0 matters: as a grid/flex item the figure would otherwise size to the
+  // SVG's intrinsic width, and the observer would keep measuring that.
+  const frame = bare
+    ? "min-w-0"
+    : "min-w-0 rounded-xl border border-line bg-surface-1 p-5";
   const wrapRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(760);
   const [hoverX, setHoverX] = useState<number | null>(null);
@@ -136,10 +147,11 @@ export function Chart({
         {subtitle && <span className="text-xs text-ink-3">{subtitle}</span>}
       </figcaption>
 
-      <div ref={wrapRef} className="relative mt-3">
+      <div ref={wrapRef} className="relative mt-3 w-full overflow-hidden">
         <svg
           width={width}
           height={height}
+          style={{ display: "block", width: "100%", maxWidth: "100%" }}
           role="img"
           aria-label={`${title} over time`}
           onMouseMove={(e) => {
@@ -210,24 +222,25 @@ export function Chart({
             ))}
 
           {/* Straight connectors across the unrecorded stretches. */}
-          {segments.slice(0, -1).map((segment, i) => {
-            const from = segment.points[segment.points.length - 1];
-            const to = segments[i + 1].points[0];
-            if (!from || !to) return null;
-            return (
-              <line
-                key={`c${i}`}
-                x1={sx(from.x)}
-                y1={sy(from.y)}
-                x2={sx(to.x)}
-                y2={sy(to.y)}
-                stroke="var(--color-ink-3)"
-                strokeWidth={2}
-                strokeDasharray="3 4"
-                strokeLinecap="round"
-              />
-            );
-          })}
+          {connectGaps &&
+            segments.slice(0, -1).map((segment, i) => {
+              const from = segment.points[segment.points.length - 1];
+              const to = segments[i + 1].points[0];
+              if (!from || !to) return null;
+              return (
+                <line
+                  key={`c${i}`}
+                  x1={sx(from.x)}
+                  y1={sy(from.y)}
+                  x2={sx(to.x)}
+                  y2={sy(to.y)}
+                  stroke="var(--color-ink-3)"
+                  strokeWidth={2}
+                  strokeDasharray="3 4"
+                  strokeLinecap="round"
+                />
+              );
+            })}
 
           {segments.map((segment, i) => (
             <path

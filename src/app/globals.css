@@ -40,9 +40,12 @@
 html {
   color-scheme: dark;
   background-color: var(--color-plane);
+  /* Horizontal drags belong to the page, not to the browser's back gesture. */
+  overscroll-behavior-x: none;
 }
 
 body {
+  overscroll-behavior-x: none;
   background-color: var(--color-plane);
   color: var(--color-ink);
   font-family: var(--font-sans), system-ui, -apple-system, "Segoe UI", sans-serif;

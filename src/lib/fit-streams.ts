@@ -16,6 +16,8 @@ export type StreamPoint = {
 export type Totals = {
   distance: number;
   elapsed: number;
+  /** Time the recording timer ran, excluding paused gaps. From the FIT session. */
+  timerTime: number;
   movingTime: number;
   avgHr?: number;
   maxHr?: number;
@@ -168,9 +170,14 @@ function computeTotals(records: RawRecord[], session?: Record<string, unknown>):
     }
   }
 
+  const sessionTimer = num(session?.totalTimerTime);
+
   return {
     distance: round(distance, 1),
     elapsed: Math.round(elapsed),
+    // The session's own timer time is authoritative; the speed-based estimate is
+    // only a fallback for files that don't carry one.
+    timerTime: Math.round(sessionTimer ?? movingTime),
     movingTime: Math.round(movingTime),
     avgHr: hrCount > 0 ? Math.round(hrSum / hrCount) : undefined,
     maxHr: maxHr || undefined,
